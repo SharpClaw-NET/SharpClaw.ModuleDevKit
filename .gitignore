@@ -1,0 +1,9 @@
+docs/internal/
+bin/
+obj/
+artifacts/
+packages/
+TestResults/
+*.user
+*.suo
+*.nupkg
