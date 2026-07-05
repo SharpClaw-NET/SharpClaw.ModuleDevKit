@@ -1,0 +1,58 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <PackageId>SharpClaw.Modules.ModuleDev</PackageId>
+    <Title>SharpClaw Module Development Kit</Title>
+    <Authors>mkn8rn</Authors>
+    <Company>mkn8rn</Company>
+    <Description>Runtime-loadable SharpClaw module development kit.</Description>
+    <PackageTags>sharpclaw;module;development-kit;agents</PackageTags>
+    <PackageLicenseExpression>AGPL-3.0-only</PackageLicenseExpression>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
+    <PackageProjectUrl>https://github.com/mkn8rn/SharpClaw.ModuleDevKit</PackageProjectUrl>
+    <RepositoryUrl>https://github.com/mkn8rn/SharpClaw.ModuleDevKit</RepositoryUrl>
+    <RepositoryType>git</RepositoryType>
+    <IsSharpClawModulePackage>true</IsSharpClawModulePackage>
+    <IsPackable>true</IsPackable>
+    <SuppressDependenciesWhenPacking>true</SuppressDependenciesWhenPacking>
+    <IncludeContentInPack>false</IncludeContentInPack>
+    <TargetsForTfmSpecificContentInPackage>$(TargetsForTfmSpecificContentInPackage);AddSharpClawModulePayloadToPackage</TargetsForTfmSpecificContentInPackage>
+    <CopyLocalLockFileAssemblies>true</CopyLocalLockFileAssemblies>
+    <GenerateDependencyFile>true</GenerateDependencyFile>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="SharpClaw.Contracts" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="SharpClaw.ModuleDevKit.Tests" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <EmbeddedResource Include="Templates\ModuleClass.cs.template" WithCulture="false" />
+    <EmbeddedResource Include="Templates\ProjectFile.csproj.template" WithCulture="false" />
+    <EmbeddedResource Include="Templates\Manifest.json.template" WithCulture="false" />
+    <EmbeddedResource Include="Templates\NodePackage.json.template" WithCulture="false" />
+    <EmbeddedResource Include="Templates\NodeModule.mjs.template" WithCulture="false" />
+    <EmbeddedResource Include="Templates\NodeManifest.json.template" WithCulture="false" />
+    <EmbeddedResource Include="Templates\PythonPyproject.toml.template" WithCulture="false" />
+    <EmbeddedResource Include="Templates\PythonModule.py.template" WithCulture="false" />
+    <EmbeddedResource Include="Templates\PythonManifest.json.template" WithCulture="false" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Content Include="module.json" Link="modules\sharpclaw_module_dev\module.json" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="System.Security.Cryptography.Xml" />
+  </ItemGroup>
+
+</Project>

@@ -1,0 +1,17 @@
+<Solution>
+  <Folder Name="/Modules/">
+    <Project Path="SharpClaw.Modules.ModuleDev/SharpClaw.Modules.ModuleDev.csproj" />
+  </Folder>
+  <Folder Name="/Tests/">
+    <Project Path="SharpClaw.ModuleDevKit.Tests/SharpClaw.ModuleDevKit.Tests.csproj" />
+  </Folder>
+  <Folder Name="/Solution Items/Build/">
+    <File Path="Directory.Build.props" />
+    <File Path="Directory.Build.targets" />
+    <File Path="Directory.Packages.props" />
+  </Folder>
+  <Folder Name="/Solution Items/">
+    <File Path="LICENSE.md" />
+    <File Path="README.md" />
+  </Folder>
+</Solution>

@@ -1,0 +1,13 @@
+<Project>
+  <PropertyGroup>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <ManagePackageVersionsCentrally>true</ManagePackageVersionsCentrally>
+    <CentralPackageTransitivePinningEnabled>true</CentralPackageTransitivePinningEnabled>
+    <Version>0.1.1-beta</Version>
+    <AssemblyVersion>0.1.1.0</AssemblyVersion>
+    <FileVersion>0.1.1.0</FileVersion>
+    <InformationalVersion>0.1.1-beta</InformationalVersion>
+    <NoWarn>$(NoWarn);NU1507;NU1510;NU5100;NU5118;NU5128</NoWarn>
+  </PropertyGroup>
+</Project>
