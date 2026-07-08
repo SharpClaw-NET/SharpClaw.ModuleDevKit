@@ -11,8 +11,8 @@
     <PackageTags>sharpclaw;module;development-kit;agents</PackageTags>
     <PackageLicenseExpression>AGPL-3.0-only</PackageLicenseExpression>
     <PackageReadmeFile>README.md</PackageReadmeFile>
-    <PackageProjectUrl>https://github.com/mkn8rn/SharpClaw.ModuleDevKit</PackageProjectUrl>
-    <RepositoryUrl>https://github.com/mkn8rn/SharpClaw.ModuleDevKit</RepositoryUrl>
+    <PackageProjectUrl>https://github.com/SharpClaw-NET/SharpClaw.ModuleDevKit</PackageProjectUrl>
+    <RepositoryUrl>https://github.com/SharpClaw-NET/SharpClaw.ModuleDevKit</RepositoryUrl>
     <RepositoryType>git</RepositoryType>
     <IsSharpClawModulePackage>true</IsSharpClawModulePackage>
     <IsPackable>true</IsPackable>
