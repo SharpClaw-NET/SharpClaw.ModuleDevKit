@@ -2,6 +2,7 @@ using System.Text.Json;
 
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Routing;
 
 using SharpClaw.Contracts.Modules;
@@ -24,7 +25,7 @@ public static class ModuleDevEndpoints
         // ── Scaffold ─────────────────────────────────────────────
         group.MapPost("/scaffold", async (
             HttpRequest request,
-            Services.ModuleScaffoldService scaffold) =>
+            [FromServices] Services.ModuleScaffoldService scaffold) =>
         {
             var body = await JsonDocument.ParseAsync(request.Body);
             var root = body.RootElement;
@@ -43,7 +44,7 @@ public static class ModuleDevEndpoints
         // ── File listing ─────────────────────────────────────────
         group.MapGet("/{moduleId}/files", (
             string moduleId, string? pattern,
-            Services.ModuleWorkspaceService workspace) =>
+            [FromServices] Services.ModuleWorkspaceService workspace) =>
         {
             var files = workspace.ListFiles(moduleId, pattern);
             return Results.Ok(files);
@@ -52,7 +53,7 @@ public static class ModuleDevEndpoints
         // ── File read ────────────────────────────────────────────
         group.MapGet("/{moduleId}/files/{**path}", async (
             string moduleId, string path, int? maxLines,
-            Services.ModuleWorkspaceService workspace) =>
+            [FromServices] Services.ModuleWorkspaceService workspace) =>
         {
             try
             {
@@ -68,7 +69,7 @@ public static class ModuleDevEndpoints
         // ── File write ───────────────────────────────────────────
         group.MapPut("/{moduleId}/files/{**path}", async (
             string moduleId, string path, HttpRequest request,
-            Services.ModuleWorkspaceService workspace) =>
+            [FromServices] Services.ModuleWorkspaceService workspace) =>
         {
             var body = await JsonDocument.ParseAsync(request.Body);
             var content = body.RootElement.GetProperty("content").GetString()!;
@@ -79,7 +80,7 @@ public static class ModuleDevEndpoints
         // ── Build ────────────────────────────────────────────────
         group.MapPost("/{moduleId}/build", async (
             string moduleId, HttpRequest request,
-            Services.ModuleBuildService build) =>
+            [FromServices] Services.ModuleBuildService build) =>
         {
             var config = "Debug";
             if (request.ContentLength > 0)
@@ -96,8 +97,8 @@ public static class ModuleDevEndpoints
         // ── Load ─────────────────────────────────────────────────
         group.MapPost("/{moduleId}/load", async (
             string moduleId,
-            IModuleLifecycleManager lifecycle,
-            Services.ModuleWorkspaceService workspace) =>
+            [FromServices] IModuleLifecycleManager lifecycle,
+            [FromServices] Services.ModuleWorkspaceService workspace) =>
         {
             var moduleDir = workspace.ResolveModuleDir(moduleId);
             var result = await lifecycle.LoadExternalAsync(moduleDir, null!);
@@ -106,7 +107,7 @@ public static class ModuleDevEndpoints
 
         // ── Unload ───────────────────────────────────────────────
         group.MapDelete("/{moduleId}/load", async (
-            string moduleId, IModuleLifecycleManager lifecycle) =>
+            string moduleId, [FromServices] IModuleLifecycleManager lifecycle) =>
         {
             await lifecycle.UnloadExternalAsync(moduleId);
             return Results.Ok(new { moduleId, unloaded = true });
@@ -114,7 +115,7 @@ public static class ModuleDevEndpoints
 
         // ── Reload ───────────────────────────────────────────────
         group.MapPost("/{moduleId}/reload", async (
-            string moduleId, IModuleLifecycleManager lifecycle) =>
+            string moduleId, [FromServices] IModuleLifecycleManager lifecycle) =>
         {
             var result = await lifecycle.ReloadExternalAsync(moduleId, null!);
             return Results.Ok(result);
@@ -123,7 +124,7 @@ public static class ModuleDevEndpoints
         // ── Inspect process ──────────────────────────────────────
         group.MapGet("/inspect/{target}", async (
             string target, string? include, string? exportFilter,
-            Services.ProcessInspectionService inspection) =>
+            [FromServices] Services.ProcessInspectionService inspection) =>
         {
             var sections = include?.Split(',', StringSplitOptions.TrimEntries) as IReadOnlyList<string>;
             var result = await inspection.InspectAsync(target, sections, exportFilter);
@@ -133,14 +134,14 @@ public static class ModuleDevEndpoints
         // ── COM type library inspection ──────────────────────────
         group.MapGet("/com/{**typelibPath}", async (
             string typelibPath, string? interfaceFilter, bool? includeInherited,
-            Services.ComTypeLibInspector inspector) =>
+            [FromServices] Services.ComTypeLibInspector inspector) =>
         {
             var result = await inspector.InspectAsync(typelibPath, interfaceFilter, includeInherited ?? false);
             return Results.Content(result, "application/json");
         });
 
         // ── Dev environment ──────────────────────────────────────
-        group.MapGet("/env", async (Services.DevEnvironmentService devEnv) =>
+        group.MapGet("/env", async ([FromServices] Services.DevEnvironmentService devEnv) =>
         {
             var info = await devEnv.GetEnvironmentAsync();
             return Results.Content(devEnv.ToJson(info), "application/json");

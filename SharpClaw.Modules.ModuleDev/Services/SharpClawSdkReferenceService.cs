@@ -21,13 +21,6 @@ internal sealed class SharpClawSdkReferenceService
                 so the next turn gets syntax, dependency, or declared verify
                 diagnostics instead of a vague sidecar startup failure.
 
-                A task follows the same pattern with mdk_apply_task_source. The
-                tool validates the raw task source first. If validation fails it
-                saves nothing and steers the next turn toward the diagnostics.
-                If validation passes it creates a new task or updates the task
-                named by task_id, then steers the next turn with the saved task
-                id and active status.
-
                 Example module workflow:
 
                 ```json
@@ -59,7 +52,7 @@ internal sealed class SharpClawSdkReferenceService
                 interfaces and explicit package references. Do not reference
                 SharpClaw.Runtime.BLL, SharpClaw.Runtime.INF,
                 or a host DbContext from a module. Host-owned features such as
-                task authoring, lifecycle, module storage, and conversation
+                lifecycle, module storage, and conversation
                 steering are injected as Contracts interfaces.
 
                 Minimal tool flow:
@@ -198,7 +191,7 @@ internal sealed class SharpClawSdkReferenceService
                 persisted system-role chat message into a channel or thread.
                 The next model turn sees it through the normal thread history
                 path. Use it after build failures, successful hot-loads, test
-                results, task validation failures, and any other result that
+                results and any other result that
                 should guide the agent's next message. The host validates the
                 channel and thread relationship, stores source/category metadata,
                 and publishes thread activity when the target is threaded.
@@ -225,30 +218,6 @@ internal sealed class SharpClawSdkReferenceService
                     source="module_dev",
                     category="module_build",
                 )
-                ```
-                """,
-
-            ["tasks"] = """
-                SharpClaw task SDK.
-
-                Task source is authored as raw C# text and stored through the
-                host ITaskAuthoring contract. Validation parses the source and
-                returns diagnostics without saving. Creation and update validate
-                before persistence and resynchronize trigger bindings when the
-                source changes. ModuleDev exposes this as mdk_validate_task,
-                mdk_create_task, mdk_update_task, and the higher-level
-                mdk_apply_task_source workflow.
-
-                Example workflow input:
-
-                ```json
-                {
-                  "source_text": "task source here",
-                  "conversation": {
-                    "channel_id": "00000000-0000-0000-0000-000000000000",
-                    "thread_id": "11111111-1111-1111-1111-111111111111"
-                  }
-                }
                 ```
                 """,
 

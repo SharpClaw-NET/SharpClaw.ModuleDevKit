@@ -1,7 +1,7 @@
 {
   "id": "sharpclaw_module_dev",
   "displayName": "Module Development Kit",
-  "version": "0.1.1-beta",
+  "version": "0.1.1-beta.1",
   "toolPrefix": "mdk",
   "runtime": "dotnet",
   "hostMode": "sidecar",

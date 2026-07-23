@@ -2,9 +2,7 @@ using System.Text.Json;
 using Microsoft.Extensions.DependencyInjection;
 using NUnit.Framework;
 using SharpClaw.Contracts.DTOs.Chat;
-using SharpClaw.Contracts.DTOs.Tasks;
 using SharpClaw.Contracts.Modules;
-using SharpClaw.Contracts.Tasks;
 using SharpClaw.Modules.ModuleDev;
 using SharpClaw.Modules.ModuleDev.Services;
 
@@ -43,7 +41,6 @@ public sealed class ModuleDevAgentWorkflowTests
         {
             Assert.That(names, Does.Contain("get_sdk_reference"));
             Assert.That(names, Does.Contain("apply_module_files"));
-            Assert.That(names, Does.Contain("apply_task_source"));
             Assert.That(names, Does.Contain("record_conversation_steering"));
             Assert.That(names, Does.Contain("list_conversation_steering"));
         });
@@ -373,88 +370,8 @@ public sealed class ModuleDevAgentWorkflowTests
         });
     }
 
-    [Test]
-    public async Task ApplyTaskSource_WhenValidationFails_DoesNotSaveAndSteersDiagnostics()
-    {
-        var authoring = new RecordingTaskAuthoring(isValid: false);
-        var steering = new RecordingConversationSteering();
-        var module = new ModuleDevModule();
-        await using var provider = CreateProvider(
-            new RecordingLifecycle(_externalModulesDir),
-            authoring,
-            steering);
-        var channelId = Guid.Parse("cccccccc-cccc-cccc-cccc-cccccccccccc");
-        using var parameters = JsonDocument.Parse($$"""
-            {
-              "source_text": "bad task source",
-              "conversation": {
-                "channel_id": "{{channelId}}"
-              }
-            }
-            """);
-
-        var result = await module.ExecuteToolAsync(
-            "apply_task_source",
-            parameters.RootElement,
-            Job(channelId),
-            provider,
-            CancellationToken.None);
-
-        using var payload = JsonDocument.Parse(result);
-
-        Assert.Multiple(() =>
-        {
-            Assert.That(payload.RootElement.GetProperty("success").GetBoolean(), Is.False);
-            Assert.That(authoring.CreatedSource, Is.Null);
-            Assert.That(authoring.Updated, Is.Null);
-            Assert.That(steering.Requests, Has.Count.EqualTo(1));
-            Assert.That(steering.Requests[0].Category, Is.EqualTo("task_validation"));
-            Assert.That(steering.Requests[0].Details, Does.Contain("MDK001"));
-        });
-    }
-
-    [Test]
-    public async Task ApplyTaskSource_WhenValid_CreatesTaskAndSteersSavedId()
-    {
-        var authoring = new RecordingTaskAuthoring(isValid: true);
-        var steering = new RecordingConversationSteering();
-        var module = new ModuleDevModule();
-        await using var provider = CreateProvider(
-            new RecordingLifecycle(_externalModulesDir),
-            authoring,
-            steering);
-        var channelId = Guid.Parse("dddddddd-dddd-dddd-dddd-dddddddddddd");
-        using var parameters = JsonDocument.Parse($$"""
-            {
-              "source_text": "good task source",
-              "conversation": {
-                "channel_id": "{{channelId}}"
-              }
-            }
-            """);
-
-        var result = await module.ExecuteToolAsync(
-            "apply_task_source",
-            parameters.RootElement,
-            Job(channelId),
-            provider,
-            CancellationToken.None);
-
-        using var payload = JsonDocument.Parse(result);
-
-        Assert.Multiple(() =>
-        {
-            Assert.That(payload.RootElement.GetProperty("success").GetBoolean(), Is.True);
-            Assert.That(authoring.CreatedSource, Is.EqualTo("good task source"));
-            Assert.That(steering.Requests, Has.Count.EqualTo(1));
-            Assert.That(steering.Requests[0].Category, Is.EqualTo("task_workflow"));
-            Assert.That(steering.Requests[0].Details, Does.Contain(authoring.TaskId.ToString()));
-        });
-    }
-
     private static ServiceProvider CreateProvider(
         RecordingLifecycle lifecycle,
-        RecordingTaskAuthoring? authoring = null,
         RecordingConversationSteering? steering = null,
         RecordingCommandRunner? commandRunner = null)
     {
@@ -463,7 +380,6 @@ public sealed class ModuleDevAgentWorkflowTests
         services.AddSingleton<IModuleLifecycleManager>(lifecycle);
         services.AddSingleton<IModuleRuntimeCommandRunner>(commandRunner ?? new RecordingCommandRunner());
         services.AddSingleton<IModuleInfoProvider>(new EmptyModuleInfoProvider());
-        services.AddSingleton<ITaskAuthoring>(authoring ?? new RecordingTaskAuthoring(isValid: true));
         services.AddSingleton<IConversationSteering>(steering ?? new RecordingConversationSteering());
         return services.BuildServiceProvider();
     }
@@ -523,59 +439,6 @@ public sealed class ModuleDevAgentWorkflowTests
     private sealed class EmptyModuleInfoProvider : IModuleInfoProvider
     {
         public IReadOnlyList<ModuleInfo> GetAllModules() => [];
-    }
-
-    private sealed class RecordingTaskAuthoring(bool isValid) : ITaskAuthoring
-    {
-        public Guid TaskId { get; } = Guid.Parse("eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee");
-        public string? CreatedSource { get; private set; }
-        public (Guid Id, string? SourceText, bool? IsActive)? Updated { get; private set; }
-
-        public TaskValidationResponse ValidateDefinition(string sourceText) =>
-            isValid
-                ? new TaskValidationResponse(true, [])
-                : new TaskValidationResponse(
-                    false,
-                    [new TaskDiagnosticResponse("Error", "MDK001", "Bad task source.", 1, 1)]);
-
-        public Task<TaskDefinitionResponse> CreateDefinitionAsync(
-            CreateTaskDefinitionRequest request,
-            CancellationToken ct = default)
-        {
-            CreatedSource = request.SourceText;
-            return Task.FromResult(Response(TaskId));
-        }
-
-        public Task<TaskDefinitionResponse?> GetDefinitionAsync(Guid id, CancellationToken ct = default) =>
-            Task.FromResult<TaskDefinitionResponse?>(id == TaskId ? Response(id) : null);
-
-        public Task<IReadOnlyList<TaskDefinitionResponse>> ListDefinitionsAsync(CancellationToken ct = default) =>
-            Task.FromResult<IReadOnlyList<TaskDefinitionResponse>>([Response(TaskId)]);
-
-        public Task<TaskDefinitionResponse?> UpdateDefinitionAsync(
-            Guid id,
-            UpdateTaskDefinitionRequest request,
-            CancellationToken ct = default)
-        {
-            Updated = (id, request.SourceText, request.IsActive);
-            return Task.FromResult<TaskDefinitionResponse?>(Response(id));
-        }
-
-        public Task<bool> DeleteDefinitionAsync(Guid id, CancellationToken ct = default) =>
-            Task.FromResult(true);
-
-        private static TaskDefinitionResponse Response(Guid id) =>
-            new(
-                id,
-                "Generated Task",
-                "Created by workflow",
-                null,
-                true,
-                [],
-                [],
-                [],
-                DateTimeOffset.UnixEpoch,
-                DateTimeOffset.UnixEpoch);
     }
 
     private sealed class RecordingConversationSteering : IConversationSteering

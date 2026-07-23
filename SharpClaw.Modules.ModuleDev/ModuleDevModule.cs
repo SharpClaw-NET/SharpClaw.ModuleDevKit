@@ -3,9 +3,7 @@ using System.Text.Json.Serialization;
 using Microsoft.AspNetCore.Routing;
 using Microsoft.Extensions.DependencyInjection;
 using SharpClaw.Contracts.DTOs.Chat;
-using SharpClaw.Contracts.DTOs.Tasks;
 using SharpClaw.Contracts.Modules;
-using SharpClaw.Contracts.Tasks;
 using SharpClaw.Modules.ModuleDev.Handlers;
 using SharpClaw.Modules.ModuleDev.Services;
 
@@ -69,9 +67,8 @@ public sealed class ModuleDevModule : ISharpClawRuntimeModule
         new("CanLoadModules",      "Load Modules",        "Hot-load or unload external modules into the running host.",   "LoadModuleAsync"),
         new("CanTestModuleTools",  "Test Module Tools",   "Invoke tools from loaded modules for testing.",                "TestModuleToolAsync"),
         new("CanInspectProcesses", "Inspect Processes",   "Enumerate loaded DLLs, exports, COM type libraries of live processes.", "InspectProcessAsync"),
-        new("CanManageTasks",      "Manage Agent Tasks",  "Detect, list, view, create, update, and delete SharpClaw task definitions.", "ManageTaskAsync"),
         new("CanUseSdkReference",  "Use SDK Reference",   "Read SharpClaw SDK and sidecar development reference material.", "UseSdkReferenceAsync"),
-        new("CanRunAgentWorkflow", "Run Agent Workflow",  "Apply module or task source, verify it, hot-load when requested, and steer the next conversation turn.", "RunAgentWorkflowAsync"),
+        new("CanRunAgentWorkflow", "Run Agent Workflow",  "Apply module files, verify them, hot-load when requested, and steer the next conversation turn.", "RunAgentWorkflowAsync"),
         new("CanSteerConversation","Steer Conversation",  "Persist host-owned system steering messages into a channel or thread.", "SteerConversationAsync"),
     ];
 
@@ -262,7 +259,6 @@ public sealed class ModuleDevModule : ISharpClawRuntimeModule
         var load     = new ModuleToolPermission(IsPerResource: false, Check: null, DelegateTo: "LoadModuleAsync");
         var test     = new ModuleToolPermission(IsPerResource: false, Check: null, DelegateTo: "TestModuleToolAsync");
         var inspect  = new ModuleToolPermission(IsPerResource: false, Check: null, DelegateTo: "InspectProcessAsync");
-        var task     = new ModuleToolPermission(IsPerResource: false, Check: null, DelegateTo: "ManageTaskAsync");
         var sdk      = new ModuleToolPermission(IsPerResource: false, Check: null, DelegateTo: "UseSdkReferenceAsync");
         var workflow = new ModuleToolPermission(IsPerResource: false, Check: null, DelegateTo: "RunAgentWorkflowAsync");
         var steer    = new ModuleToolPermission(IsPerResource: false, Check: null, DelegateTo: "SteerConversationAsync");
@@ -314,7 +310,7 @@ public sealed class ModuleDevModule : ISharpClawRuntimeModule
                 BuildEmptySchema(), scaffold),
 
             new("get_sdk_reference",
-                "Return SharpClaw SDK reference material for AI agents, including .NET, JavaScript, Python, storage, task, manifest, and conversation steering examples.",
+                "Return SharpClaw SDK reference material for AI agents, including .NET, JavaScript, Python, storage, manifest, and conversation steering examples.",
                 BuildSdkReferenceSchema(), sdk),
 
             new("apply_module_files",
@@ -329,34 +325,6 @@ public sealed class ModuleDevModule : ISharpClawRuntimeModule
                 "List recent conversation steering messages for a channel or thread.",
                 BuildListConversationSteeringSchema(), steer),
 
-            // ── Task management ──────────────────────────────────
-            new("list_tasks",
-                "Detect and list every SharpClaw task definition (id, name, description, active flag, parameters, requirements, triggers).",
-                BuildEmptySchema(), task),
-
-            new("get_task",
-                "Get a single task definition by id, including its parameters, requirements, and trigger metadata.",
-                BuildTaskIdOnlySchema(), task),
-
-            new("validate_task",
-                "Parse and validate raw task C# source text without persisting it. Returns diagnostics so the agent can iterate before saving.",
-                BuildTaskValidateSchema(), task),
-
-            new("create_task",
-                "Create a new task definition from raw C# source. The script is parsed and validated; trigger bindings are synchronised on save.",
-                BuildTaskCreateSchema(), task),
-
-            new("update_task",
-                "Update an existing task definition's source text and/or active flag. Re-parses, re-validates, and re-syncs triggers when source changes.",
-                BuildTaskUpdateSchema(), task),
-
-            new("delete_task",
-                "Delete a task definition by id. Removes its trigger bindings as well.",
-                BuildTaskIdOnlySchema(), task),
-
-            new("apply_task_source",
-                "Validate raw task C# source, create or update the task only when valid, and persist conversation steering with diagnostics or save details.",
-                BuildApplyTaskSourceSchema(), workflow),
         ];
     }
 
@@ -400,13 +368,6 @@ public sealed class ModuleDevModule : ISharpClawRuntimeModule
             "apply_module_files"         => await ApplyModuleFilesAsync(parameters, job, sp, ct),
             "record_conversation_steering" => await RecordConversationSteeringAsync(parameters, job, sp, ct),
             "list_conversation_steering" => await ListConversationSteeringAsync(parameters, job, sp, ct),
-            "list_tasks"                => await ListTasksAsync(sp, ct),
-            "get_task"                  => await GetTaskAsync(parameters, sp, ct),
-            "validate_task"             => ValidateTask(parameters, sp),
-            "create_task"               => await CreateTaskAsync(parameters, sp, ct),
-            "update_task"               => await UpdateTaskAsync(parameters, sp, ct),
-            "delete_task"               => await DeleteTaskAsync(parameters, sp, ct),
-            "apply_task_source"          => await ApplyTaskSourceAsync(parameters, job, sp, ct),
             _ => throw new NotSupportedException($"Unknown MDK tool: {toolName}"),
         };
     }
@@ -784,157 +745,6 @@ public sealed class ModuleDevModule : ISharpClawRuntimeModule
         }
     }
 
-    private static async Task<string> ApplyTaskSourceAsync(
-        JsonElement p,
-        AgentJobContext job,
-        IServiceProvider sp,
-        CancellationToken ct)
-    {
-        var target = ReadWorkflowSteeringTarget(p, job);
-        var authoring = ResolveTaskAuthoring(sp);
-        var source = Str(p, "source_text") ?? throw new InvalidOperationException("source_text is required.");
-        var taskId = TryParseGuid(Str(p, "task_id"));
-
-        try
-        {
-            var validation = authoring.ValidateDefinition(source);
-            if (!validation.IsValid)
-            {
-                var steering = await AddSteeringAsync(
-                    sp,
-                    target,
-                    "task_validation",
-                    "Task source validation failed. Do not save it yet.",
-                    FormatTaskDiagnostics(validation),
-                    ct);
-                return JsonSerializer.Serialize(new
-                {
-                    success = false,
-                    action = "validate",
-                    validation,
-                    steering,
-                }, ToolJsonOpts);
-            }
-
-            TaskDefinitionResponse saved;
-            var action = taskId is { } ? "update" : "create";
-            if (taskId is { } updateId)
-            {
-                saved = await authoring.UpdateDefinitionAsync(
-                    updateId,
-                    new UpdateTaskDefinitionRequest(source, Bool(p, "is_active")),
-                    ct)
-                    ?? throw new InvalidOperationException($"Task definition '{updateId}' not found.");
-            }
-            else
-            {
-                saved = await authoring.CreateDefinitionAsync(
-                    new CreateTaskDefinitionRequest(source),
-                    ct);
-            }
-
-            var steeringResponse = await AddSteeringAsync(
-                sp,
-                target,
-                "task_workflow",
-                $"Task '{saved.Name}' {action}d successfully.",
-                $"Task id: {saved.Id}{Environment.NewLine}Active: {saved.IsActive}",
-                ct);
-
-            return JsonSerializer.Serialize(new
-            {
-                success = true,
-                action,
-                validation,
-                task = saved,
-                steering = steeringResponse,
-            }, ToolJsonOpts);
-        }
-        catch (Exception ex) when (ex is not OperationCanceledException)
-        {
-            var steering = await AddSteeringAsync(
-                sp,
-                target,
-                "task_workflow_error",
-                "Task source workflow failed before save completed.",
-                TruncateForSteering(ex.ToString()),
-                ct);
-            return JsonSerializer.Serialize(new
-            {
-                success = false,
-                error = ex.Message,
-                steering,
-            }, ToolJsonOpts);
-        }
-    }
-
-    // ── Task management handlers ─────────────────────────────────
-
-    private static ITaskAuthoring ResolveTaskAuthoring(IServiceProvider sp) =>
-        sp.GetService<ITaskAuthoring>()
-            ?? throw new InvalidOperationException(
-                "ITaskAuthoring is not registered. The host must register TaskService as ITaskAuthoring.");
-
-    private static async Task<string> ListTasksAsync(IServiceProvider sp, CancellationToken ct)
-    {
-        var authoring = ResolveTaskAuthoring(sp);
-        var tasks = await authoring.ListDefinitionsAsync(ct);
-        return JsonSerializer.Serialize(tasks, ToolJsonOpts);
-    }
-
-    private static async Task<string> GetTaskAsync(JsonElement p, IServiceProvider sp, CancellationToken ct)
-    {
-        var authoring = ResolveTaskAuthoring(sp);
-        var id = ParseTaskId(p);
-        var task = await authoring.GetDefinitionAsync(id, ct)
-            ?? throw new InvalidOperationException($"Task definition '{id}' not found.");
-        return JsonSerializer.Serialize(task, ToolJsonOpts);
-    }
-
-    private static string ValidateTask(JsonElement p, IServiceProvider sp)
-    {
-        var authoring = ResolveTaskAuthoring(sp);
-        var source = Str(p, "source_text") ?? throw new InvalidOperationException("source_text is required.");
-        var result = authoring.ValidateDefinition(source);
-        return JsonSerializer.Serialize(result, ToolJsonOpts);
-    }
-
-    private static async Task<string> CreateTaskAsync(JsonElement p, IServiceProvider sp, CancellationToken ct)
-    {
-        var authoring = ResolveTaskAuthoring(sp);
-        var source = Str(p, "source_text") ?? throw new InvalidOperationException("source_text is required.");
-        var created = await authoring.CreateDefinitionAsync(new CreateTaskDefinitionRequest(source), ct);
-        return JsonSerializer.Serialize(created, ToolJsonOpts);
-    }
-
-    private static async Task<string> UpdateTaskAsync(JsonElement p, IServiceProvider sp, CancellationToken ct)
-    {
-        var authoring = ResolveTaskAuthoring(sp);
-        var id = ParseTaskId(p);
-        var request = new UpdateTaskDefinitionRequest(
-            SourceText: Str(p, "source_text"),
-            IsActive: Bool(p, "is_active"));
-        var updated = await authoring.UpdateDefinitionAsync(id, request, ct)
-            ?? throw new InvalidOperationException($"Task definition '{id}' not found.");
-        return JsonSerializer.Serialize(updated, ToolJsonOpts);
-    }
-
-    private static async Task<string> DeleteTaskAsync(JsonElement p, IServiceProvider sp, CancellationToken ct)
-    {
-        var authoring = ResolveTaskAuthoring(sp);
-        var id = ParseTaskId(p);
-        var removed = await authoring.DeleteDefinitionAsync(id, ct);
-        return JsonSerializer.Serialize(new { task_id = id, deleted = removed }, ToolJsonOpts);
-    }
-
-    private static Guid ParseTaskId(JsonElement p)
-    {
-        var raw = Str(p, "task_id") ?? throw new InvalidOperationException("task_id is required.");
-        return Guid.TryParse(raw, out var id)
-            ? id
-            : throw new InvalidOperationException($"task_id '{raw}' is not a valid GUID.");
-    }
-
     // ── Inline tool handlers ─────────────────────────────────────
 
     private static string DescribeModuleSystem(IServiceProvider sp)
@@ -1130,7 +940,7 @@ public sealed class ModuleDevModule : ISharpClawRuntimeModule
             "properties": {
                 "topic": {
                     "type": "string",
-                    "enum": ["agent_workflow", "dotnet", "javascript", "python", "storage", "conversation_steering", "tasks", "manifest", "all"],
+                    "enum": ["agent_workflow", "dotnet", "javascript", "python", "storage", "conversation_steering", "manifest", "all"],
                     "description": "Reference topic. Defaults to agent_workflow."
                 }
             }
@@ -1217,69 +1027,6 @@ public sealed class ModuleDevModule : ISharpClawRuntimeModule
                     }
                 }
             }
-        }
-        """);
-
-    private static JsonElement BuildApplyTaskSourceSchema() => ParseSchema("""
-        {
-            "type": "object",
-            "properties": {
-                "task_id":     { "type": "string", "description": "Existing task GUID. Omit to create a new task." },
-                "source_text": { "type": "string", "description": "Raw C# task source. It is validated before save." },
-                "is_active":   { "type": "boolean", "description": "Optional active flag when updating an existing task." },
-                "conversation": {
-                    "type": "object",
-                    "properties": {
-                        "channel_id":  { "type": "string", "description": "Target channel GUID. Optional only when the current job supplies a channel." },
-                        "thread_id":   { "type": "string", "description": "Optional target thread GUID." },
-                        "source":      { "type": "string", "description": "Source label. Defaults to module_dev." },
-                        "client_type": { "type": "string", "description": "Client type stored on steering messages. Defaults to module-dev." }
-                    }
-                }
-            },
-            "required": ["source_text", "conversation"]
-        }
-        """);
-
-    private static JsonElement BuildTaskIdOnlySchema() => ParseSchema("""
-        {
-            "type": "object",
-            "properties": {
-                "task_id": { "type": "string", "description": "Task definition GUID." }
-            },
-            "required": ["task_id"]
-        }
-        """);
-
-    private static JsonElement BuildTaskValidateSchema() => ParseSchema("""
-        {
-            "type": "object",
-            "properties": {
-                "source_text": { "type": "string", "description": "Raw C# task script source." }
-            },
-            "required": ["source_text"]
-        }
-        """);
-
-    private static JsonElement BuildTaskCreateSchema() => ParseSchema("""
-        {
-            "type": "object",
-            "properties": {
-                "source_text": { "type": "string", "description": "Raw C# task script source. Name/description/parameters/triggers are extracted at parse time." }
-            },
-            "required": ["source_text"]
-        }
-        """);
-
-    private static JsonElement BuildTaskUpdateSchema() => ParseSchema("""
-        {
-            "type": "object",
-            "properties": {
-                "task_id":     { "type": "string", "description": "Task definition GUID." },
-                "source_text": { "type": "string", "description": "Optional new C# source. Re-parses and re-syncs triggers when supplied." },
-                "is_active":   { "type": "boolean", "description": "Optional active flag override." }
-            },
-            "required": ["task_id"]
         }
         """);
 
@@ -1480,16 +1227,6 @@ public sealed class ModuleDevModule : ISharpClawRuntimeModule
             stdout = failed.Stdout,
             stderr = failed.Stderr,
         }, ToolJsonOpts));
-    }
-
-    private static string FormatTaskDiagnostics(TaskValidationResponse validation)
-    {
-        return validation.Diagnostics.Count == 0
-            ? "Validation failed without diagnostics."
-            : string.Join(
-                Environment.NewLine,
-                validation.Diagnostics.Select(diagnostic =>
-                    $"{diagnostic.Severity} {diagnostic.Code} at {diagnostic.Line}:{diagnostic.Column}: {diagnostic.Message}"));
     }
 
     private static string TruncateForSteering(string value)
