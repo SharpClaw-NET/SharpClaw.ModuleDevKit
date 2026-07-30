@@ -1,4 +1,5 @@
 using System.Text;
+using System.Text.Json;
 
 using SharpClaw.Contracts.Modules;
 
@@ -20,6 +21,9 @@ internal sealed class ModuleWorkspaceService
         ".yaml",
         ".yml"
     ];
+
+    private static readonly JsonSerializerOptions ManifestJsonOptions =
+        new(JsonSerializerDefaults.Web);
 
     private readonly string _externalModulesDir;
 
@@ -71,9 +75,7 @@ internal sealed class ModuleWorkspaceService
     public async Task<(string Path, long BytesWritten)> WriteFileAsync(
         string moduleId, string relativePath, string content, CancellationToken ct = default)
     {
-        var fullPath = ResolveFilePath(moduleId, relativePath);
-        ValidateExtension(fullPath);
-        ModulePathGuard.EnsureContainedIn(fullPath, _externalModulesDir);
+        var fullPath = ValidateFileForWrite(moduleId, relativePath, content);
 
         var dir = Path.GetDirectoryName(fullPath)!;
         Directory.CreateDirectory(dir);
@@ -82,6 +84,21 @@ internal sealed class ModuleWorkspaceService
         await File.WriteAllBytesAsync(fullPath, bytes, ct);
 
         return (fullPath, bytes.Length);
+    }
+
+    /// <summary>
+    /// Validates a file path and content without changing the workspace.
+    /// </summary>
+    public string ValidateFileForWrite(string moduleId, string relativePath, string content)
+    {
+        ArgumentNullException.ThrowIfNull(content);
+
+        var fullPath = ResolveFilePath(moduleId, relativePath);
+        ValidateExtension(fullPath);
+        ValidateContent(relativePath, content);
+        ModulePathGuard.EnsureContainedIn(fullPath, _externalModulesDir);
+
+        return fullPath;
     }
 
     /// <summary>
@@ -183,4 +200,44 @@ internal sealed class ModuleWorkspaceService
             throw new InvalidOperationException(
                 $"Cannot write files with extension '{ext}'. Allowed extensions: {string.Join(", ", AllowedExtensions.Order())}.");
     }
+
+    private static void ValidateContent(string relativePath, string content)
+    {
+        if (!string.Equals(Path.GetFileName(relativePath), "module.json", StringComparison.OrdinalIgnoreCase))
+            return;
+
+        ModuleManifest manifest;
+        try
+        {
+            manifest = JsonSerializer.Deserialize<ModuleManifest>(content, ManifestJsonOptions)
+                ?? throw new InvalidOperationException(
+                    $"Module manifest '{relativePath}' must contain a JSON object.");
+        }
+        catch (JsonException exception)
+        {
+            throw new InvalidOperationException(
+                $"Module manifest '{relativePath}' is not valid JSON.", exception);
+        }
+
+        var runtime = ModuleManifestRuntimeInfo.FromJson(content);
+        runtime.EnsureDotNetEntryAssembly(manifest);
+
+        var missingField = RequiredManifestFields.FirstOrDefault(field =>
+            string.IsNullOrWhiteSpace(field.Getter(manifest)));
+        if (missingField.Name is not null)
+        {
+            throw new InvalidOperationException(
+                $"Module manifest '{relativePath}' is missing required field '{missingField.Name}'.");
+        }
+    }
+
+    private static readonly (string Name, Func<ModuleManifest, string?> Getter)[] RequiredManifestFields =
+    [
+        ("id", manifest => manifest.Id),
+        ("displayName", manifest => manifest.DisplayName),
+        ("version", manifest => manifest.Version),
+        ("toolPrefix", manifest => manifest.ToolPrefix),
+        ("entryAssembly", manifest => manifest.EntryAssembly),
+        ("minHostVersion", manifest => manifest.MinHostVersion),
+    ];
 }

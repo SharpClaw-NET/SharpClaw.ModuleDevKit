@@ -127,6 +127,129 @@ public sealed class ModuleDevAgentWorkflowTests
         });
     }
 
+    [Test]
+    public async Task ApplyModuleFiles_WhenNonDotNetManifestIsNotFirst_DoesNotWriteBuildOrLoad()
+    {
+        var lifecycle = new RecordingLifecycle(_externalModulesDir);
+        var steering = new RecordingConversationSteering();
+        var module = new ModuleDevModule();
+        await using var provider = CreateProvider(lifecycle, steering);
+        var channelId = Guid.Parse("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa");
+        using var parameters = JsonDocument.Parse($$$"""
+            {
+              "module_id": "sample_node",
+              "build": false,
+              "load": false,
+              "files": [
+                {
+                  "relative_path": "README.md",
+                  "content": "This file must not be written."
+                },
+                {
+                  "relative_path": "module.json",
+                  "content": "{\"id\":\"sample_node\",\"displayName\":\"Sample Node\",\"version\":\"0.1.0-beta\",\"toolPrefix\":\"sn\",\"runtime\":\"node\",\"entryAssembly\":\"SampleNode.dll\",\"minHostVersion\":\"0.1.0-beta\"}"
+                }
+              ],
+              "conversation": {
+                "channel_id": "{{{channelId}}}"
+              }
+            }
+            """);
+
+        var result = await module.ExecuteToolAsync(
+            "apply_module_files",
+            parameters.RootElement,
+            Job(channelId),
+            provider,
+            CancellationToken.None);
+
+        using var payload = JsonDocument.Parse(result);
+        var moduleDir = Path.Combine(_externalModulesDir, "sample_node");
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(payload.RootElement.GetProperty("success").GetBoolean(), Is.False);
+            Assert.That(payload.RootElement.GetProperty("error").GetString(), Does.Contain("only supports 'dotnet' modules"));
+            Assert.That(payload.RootElement.TryGetProperty("build", out _), Is.False);
+            Assert.That(Directory.Exists(moduleDir), Is.False);
+            Assert.That(lifecycle.LoadCalls, Is.Zero);
+            Assert.That(steering.Requests, Has.Count.EqualTo(1));
+        });
+    }
+
+    [Test]
+    public async Task ApplyModuleFiles_WhenRuntimeRequestIsProvided_FailsBeforeWriting()
+    {
+        var lifecycle = new RecordingLifecycle(_externalModulesDir);
+        var steering = new RecordingConversationSteering();
+        var module = new ModuleDevModule();
+        await using var provider = CreateProvider(lifecycle, steering);
+        var channelId = Guid.Parse("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa");
+        using var parameters = JsonDocument.Parse($$$"""
+            {
+              "module_id": "sample_node",
+              "runtime": "node",
+              "build": false,
+              "load": false,
+              "files": [
+                {
+                  "relative_path": "README.md",
+                  "content": "This file must not be written."
+                }
+              ],
+              "conversation": {
+                "channel_id": "{{{channelId}}}"
+              }
+            }
+            """);
+
+        var result = await module.ExecuteToolAsync(
+            "apply_module_files",
+            parameters.RootElement,
+            Job(channelId),
+            provider,
+            CancellationToken.None);
+
+        using var payload = JsonDocument.Parse(result);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(payload.RootElement.GetProperty("success").GetBoolean(), Is.False);
+            Assert.That(payload.RootElement.GetProperty("error").GetString(), Does.Contain("does not accept a runtime request"));
+            Assert.That(File.Exists(Path.Combine(_externalModulesDir, "sample_node", "README.md")), Is.False);
+            Assert.That(lifecycle.LoadCalls, Is.Zero);
+            Assert.That(steering.Requests, Has.Count.EqualTo(1));
+        });
+    }
+
+    [Test]
+    public void ScaffoldModule_WhenRuntimeRequestIsProvided_RejectsIt()
+    {
+        var module = new ModuleDevModule();
+        using var parameters = JsonDocument.Parse("""
+            {
+              "module_id": "sample_node",
+              "display_name": "Sample Node",
+              "tool_prefix": "sn",
+              "runtime": "node"
+            }
+            """);
+
+        var exception = Assert.ThrowsAsync<InvalidOperationException>(async () =>
+            await module.ExecuteToolAsync(
+                "scaffold_module",
+                parameters.RootElement,
+                Job(),
+                CreateProvider(new RecordingLifecycle(_externalModulesDir)),
+                CancellationToken.None));
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(exception!.Message, Does.Contain("does not accept a runtime request"));
+            Assert.That(Directory.Exists(Path.Combine(_externalModulesDir, "sample_node")), Is.False);
+        });
+    }
+
     private static ServiceProvider CreateProvider(
         RecordingLifecycle lifecycle,
         RecordingConversationSteering? steering = null)
@@ -151,6 +274,7 @@ public sealed class ModuleDevAgentWorkflowTests
     {
         public string ExternalModulesDir { get; } = externalModulesDir;
         public string? LoadedDir { get; private set; }
+        public int LoadCalls { get; private set; }
 
         public bool IsModuleRegistered(string moduleId) => false;
         public bool IsToolPrefixRegistered(string toolPrefix) => false;
@@ -161,6 +285,7 @@ public sealed class ModuleDevAgentWorkflowTests
             IServiceProvider hostServices,
             CancellationToken ct = default)
         {
+            LoadCalls++;
             LoadedDir = moduleDir;
             return Task.FromResult(State(Path.GetFileName(moduleDir)));
         }

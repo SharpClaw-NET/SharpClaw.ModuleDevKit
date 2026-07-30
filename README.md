@@ -12,7 +12,7 @@ SharpClaw module package. The NuGet package carries its runtime payload under
 and non-framework dependency assemblies required by the sidecar loader.
 
 ```powershell
-dotnet add package SharpClaw.Modules.ModuleDev --version 0.1.1-beta.2
+dotnet add package SharpClaw.Modules.ModuleDev --version 0.1.1-beta.3
 ```
 
 After the host loads the module, agents can call tools such as scaffold, file

@@ -65,7 +65,7 @@ internal sealed partial class ModuleScaffoldService(
             .Replace("{{DESCRIPTION}}", spec.Description ?? $"{spec.DisplayName} SharpClaw module.");
 
         var csprojName = ToPascalCase(spec.ModuleId) + ".csproj";
-        await WriteFileAsync(moduleDir, csprojName, csprojContent, ct);
+        await workspace.WriteFileAsync(spec.ModuleId, csprojName, csprojContent, ct);
         files.Add(csprojName);
 
         // 2. Generate module class
@@ -84,7 +84,7 @@ internal sealed partial class ModuleScaffoldService(
             .Replace("{{TOOL_DISPATCH}}", toolDispatch);
 
         var moduleFileName = className + ".cs";
-        await WriteFileAsync(moduleDir, moduleFileName, moduleContent, ct);
+        await workspace.WriteFileAsync(spec.ModuleId, moduleFileName, moduleContent, ct);
         files.Add(moduleFileName);
 
         // 3. Generate module.json
@@ -95,7 +95,7 @@ internal sealed partial class ModuleScaffoldService(
             .Replace("{{ASSEMBLY_NAME}}", assemblyName)
             .Replace("{{DESCRIPTION}}", spec.Description ?? "");
 
-        await WriteFileAsync(moduleDir, "module.json", manifestContent, ct);
+        await workspace.WriteFileAsync(spec.ModuleId, "module.json", manifestContent, ct);
         files.Add("module.json");
 
         return new ScaffoldResult(moduleDir, files);
@@ -168,17 +168,6 @@ internal sealed partial class ModuleScaffoldService(
         }
 
         return sb.ToString().TrimEnd();
-    }
-
-    private static async Task WriteFileAsync(
-        string baseDir, string relativePath, string content, CancellationToken ct)
-    {
-        ModulePathGuard.EnsureFileName(relativePath, nameof(relativePath));
-        var fullPath = ModulePathGuard.EnsureContainedIn(
-            Path.Combine(baseDir, relativePath), baseDir);
-        var dir = Path.GetDirectoryName(fullPath)!;
-        Directory.CreateDirectory(dir);
-        await File.WriteAllTextAsync(fullPath, content, ct);
     }
 
     private static string ToPascalCase(string snakeCase)

@@ -393,6 +393,7 @@ public sealed class ModuleDevModule : ISharpClawRuntimeModule
     private static async Task<string> ScaffoldModuleAsync(
         JsonElement p, IServiceProvider sp, CancellationToken ct)
     {
+        RejectRuntimeRequest(p, "scaffold_module");
         var scaffold = sp.GetRequiredService<ModuleScaffoldService>();
 
         List<ModuleScaffoldService.ToolStub>? tools = null;
@@ -608,15 +609,23 @@ public sealed class ModuleDevModule : ISharpClawRuntimeModule
 
         try
         {
+            RejectRuntimeRequest(p, "apply_module_files");
             if (!p.TryGetProperty("files", out var filesEl) || filesEl.ValueKind != JsonValueKind.Array)
                 throw new InvalidOperationException("files is required and must be an array.");
 
+            var files = new List<(string RelativePath, string Content)>();
             foreach (var file in filesEl.EnumerateArray())
             {
                 var relativePath = Str(file, "relative_path")
                     ?? throw new InvalidOperationException("files[].relative_path is required.");
                 var content = Str(file, "content")
                     ?? throw new InvalidOperationException($"content is required for '{relativePath}'.");
+                workspace.ValidateFileForWrite(moduleId, relativePath, content);
+                files.Add((relativePath, content));
+            }
+
+            foreach (var (relativePath, content) in files)
+            {
                 var write = await workspace.WriteFileAsync(moduleId, relativePath, content, ct);
                 written.Add(new
                 {
@@ -1185,4 +1194,14 @@ public sealed class ModuleDevModule : ISharpClawRuntimeModule
     private static bool? Bool(JsonElement p, string name) =>
         p.TryGetProperty(name, out var v) && (v.ValueKind == JsonValueKind.True || v.ValueKind == JsonValueKind.False)
             ? v.GetBoolean() : null;
+
+    private static void RejectRuntimeRequest(JsonElement parameters, string toolName)
+    {
+        if (parameters.EnumerateObject().Any(property =>
+            string.Equals(property.Name, "runtime", StringComparison.OrdinalIgnoreCase)))
+        {
+            throw new InvalidOperationException(
+                $"The '{toolName}' tool accepts .NET modules only and does not accept a runtime request.");
+        }
+    }
 }
