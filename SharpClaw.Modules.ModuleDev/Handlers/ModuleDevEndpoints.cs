@@ -6,6 +6,7 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Routing;
 
 using SharpClaw.Contracts.Modules;
+using SharpClaw.Modules.ModuleDev;
 
 namespace SharpClaw.Modules.ModuleDev.Handlers;
 
@@ -29,6 +30,15 @@ public static class ModuleDevEndpoints
         {
             var body = await JsonDocument.ParseAsync(request.Body);
             var root = body.RootElement;
+
+            try
+            {
+                ModuleDevModule.RejectRuntimeRequest(root, "scaffold_module");
+            }
+            catch (InvalidOperationException exception)
+            {
+                return (IResult)Results.BadRequest(new { error = exception.Message });
+            }
 
             var spec = new Services.ModuleScaffoldService.ScaffoldSpec(
                 ModuleId: root.GetProperty("module_id").GetString()!,

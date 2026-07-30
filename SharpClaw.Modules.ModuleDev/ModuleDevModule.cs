@@ -1195,7 +1195,7 @@ public sealed class ModuleDevModule : ISharpClawRuntimeModule
         p.TryGetProperty(name, out var v) && (v.ValueKind == JsonValueKind.True || v.ValueKind == JsonValueKind.False)
             ? v.GetBoolean() : null;
 
-    private static void RejectRuntimeRequest(JsonElement parameters, string toolName)
+    internal static void RejectRuntimeRequest(JsonElement parameters, string toolName)
     {
         if (parameters.EnumerateObject().Any(property =>
             string.Equals(property.Name, "runtime", StringComparison.OrdinalIgnoreCase)))
