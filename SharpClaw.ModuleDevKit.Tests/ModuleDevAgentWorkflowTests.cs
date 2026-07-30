@@ -178,6 +178,56 @@ public sealed class ModuleDevAgentWorkflowTests
     }
 
     [Test]
+    public async Task ApplyModuleFiles_WhenManifestHasRemovedEntrypoint_DoesNotWriteBuildOrLoad()
+    {
+        var lifecycle = new RecordingLifecycle(_externalModulesDir);
+        var steering = new RecordingConversationSteering();
+        var module = new ModuleDevModule();
+        await using var provider = CreateProvider(lifecycle, steering);
+        var channelId = Guid.Parse("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa");
+        using var parameters = JsonDocument.Parse($$$"""
+            {
+              "module_id": "sample_dotnet",
+              "build": false,
+              "load": false,
+              "files": [
+                {
+                  "relative_path": "README.md",
+                  "content": "This file must not be written."
+                },
+                {
+                  "relative_path": "module.json",
+                  "content": "{\"id\":\"sample_dotnet\",\"displayName\":\"Sample Dotnet\",\"version\":\"0.1.0-beta\",\"toolPrefix\":\"sd\",\"runtime\":\"dotnet\",\"entryAssembly\":\"SampleDotnet.dll\",\"entrypoint\":\"legacy-host.js\",\"minHostVersion\":\"0.1.0-beta\"}"
+                }
+              ],
+              "conversation": {
+                "channel_id": "{{{channelId}}}"
+              }
+            }
+            """);
+
+        var result = await module.ExecuteToolAsync(
+            "apply_module_files",
+            parameters.RootElement,
+            Job(channelId),
+            provider,
+            CancellationToken.None);
+
+        using var payload = JsonDocument.Parse(result);
+        var moduleDir = Path.Combine(_externalModulesDir, "sample_dotnet");
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(payload.RootElement.GetProperty("success").GetBoolean(), Is.False);
+            Assert.That(payload.RootElement.GetProperty("error").GetString(), Does.Contain("not valid JSON"));
+            Assert.That(payload.RootElement.TryGetProperty("build", out _), Is.False);
+            Assert.That(Directory.Exists(moduleDir), Is.False);
+            Assert.That(lifecycle.LoadCalls, Is.Zero);
+            Assert.That(steering.Requests, Has.Count.EqualTo(1));
+        });
+    }
+
+    [Test]
     public async Task ApplyModuleFiles_WhenRuntimeRequestIsProvided_FailsBeforeWriting()
     {
         var lifecycle = new RecordingLifecycle(_externalModulesDir);

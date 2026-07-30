@@ -1,5 +1,6 @@
 using System.Text;
 using System.Text.Json;
+using System.Text.Json.Serialization;
 
 using SharpClaw.Contracts.Modules;
 
@@ -23,7 +24,10 @@ internal sealed class ModuleWorkspaceService
     ];
 
     private static readonly JsonSerializerOptions ManifestJsonOptions =
-        new(JsonSerializerDefaults.Web);
+        new(JsonSerializerDefaults.Web)
+        {
+            UnmappedMemberHandling = JsonUnmappedMemberHandling.Disallow,
+        };
 
     private readonly string _externalModulesDir;
 
