@@ -101,9 +101,11 @@ public sealed class ModuleDevScaffoldTests
         context.Request.Body = new MemoryStream(requestBody);
         context.Request.RouteValues["moduleId"] = "rest_module";
         context.Request.RouteValues["path"] = "module.json";
+        var requestDelegate = endpoint.RequestDelegate
+            ?? throw new InvalidOperationException("The REST file-write endpoint has no request delegate.");
 
         var exception = Assert.ThrowsAsync<InvalidOperationException>(async () =>
-            await endpoint.RequestDelegate(context));
+            await requestDelegate(context));
 
         Assert.Multiple(() =>
         {
