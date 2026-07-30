@@ -74,7 +74,7 @@ public sealed class ModuleDevScaffoldTests
         await using var app = builder.Build();
         app.MapModuleDevEndpoints();
 
-        var endpoint = app.DataSources
+        var endpoint = ((IEndpointRouteBuilder)app).DataSources
             .SelectMany(dataSource => dataSource.Endpoints)
             .OfType<RouteEndpoint>()
             .Single(candidate => candidate.Metadata.GetMetadata<HttpMethodMetadata>()?.HttpMethods.Contains("PUT") == true);
@@ -103,7 +103,7 @@ public sealed class ModuleDevScaffoldTests
         context.Request.RouteValues["path"] = "module.json";
 
         var exception = Assert.ThrowsAsync<InvalidOperationException>(async () =>
-            await endpoint.RequestDelegate!(context));
+            await endpoint.RequestDelegate(context));
 
         Assert.Multiple(() =>
         {
