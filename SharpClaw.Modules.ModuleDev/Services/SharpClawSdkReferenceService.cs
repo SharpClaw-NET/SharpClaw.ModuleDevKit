@@ -10,16 +10,14 @@ internal sealed class SharpClawSdkReferenceService
 
                 An agent can build without an IDE by treating ModuleDev as the
                 workbench. Start with mdk_get_sdk_reference for the runtime and
-                capability you need. Use mdk_scaffold_module when you want a new
-                workspace, or mdk_apply_module_files when you already know the
-                file contents and want to write several files in one operation.
-                The module workflow writes the files, detects the runtime from
-                module.json, builds .NET modules by default, verifies
-                JavaScript and Python modules before load, optionally invokes
-                test tools, and writes a system-role conversation steering
-                message for the next turn. Verification fails before hot-load,
-                so the next turn gets syntax, dependency, or declared verify
-                diagnostics instead of a vague sidecar startup failure.
+                capability you need. Use mdk_scaffold_module for a new .NET
+                workspace, or use mdk_apply_module_files when you know the file
+                contents and want to write several files in one operation.
+                The workflow writes the files, builds the .NET project, loads or
+                reloads the module, optionally invokes test tools, and writes a
+                system-role conversation steering message for the next turn.
+                Build failures stop before hot-load, so the next turn receives
+                structured compiler diagnostics.
 
                 Example module workflow:
 
@@ -28,11 +26,15 @@ internal sealed class SharpClawSdkReferenceService
                   "module_id": "agent_notes",
                   "files": [
                     {
-                      "relative_path": "module.py",
-                      "content": "from sharpclaw_module_host import create_sharpclaw_host\n"
+                      "relative_path": "AgentNotes.csproj",
+                      "content": "<Project Sdk=\"Microsoft.NET.Sdk\"><PropertyGroup><TargetFramework>net10.0</TargetFramework></PropertyGroup></Project>"
+                    },
+                    {
+                      "relative_path": "AgentNotesModule.cs",
+                      "content": "public sealed class AgentNotesModule {}"
                     }
                   ],
-                  "verify": true,
+                  "build": true,
                   "load": true,
                   "conversation": {
                     "channel_id": "00000000-0000-0000-0000-000000000000",
@@ -50,10 +52,10 @@ internal sealed class SharpClawSdkReferenceService
                 tools, contracts, resources, flags, header tags, endpoints, and
                 CLI commands. Keep module code behind SharpClaw.Contracts
                 interfaces and explicit package references. Do not reference
-                SharpClaw.Runtime.BLL, SharpClaw.Runtime.INF,
-                or a host DbContext from a module. Host-owned features such as
-                lifecycle, module storage, and conversation
-                steering are injected as Contracts interfaces.
+                SharpClaw.Runtime.BLL, SharpClaw.Runtime.INF, or a host
+                DbContext from a module. Host-owned features such as lifecycle,
+                module storage, and conversation steering use Contracts
+                interfaces.
 
                 Minimal tool flow:
 
@@ -76,90 +78,6 @@ internal sealed class SharpClawSdkReferenceService
                 ```
                 """,
 
-            ["javascript"] = """
-                SharpClaw JavaScript module SDK.
-
-                JavaScript modules use @sharpclaw/module-host. The SDK starts a
-                local HTTP control server, answers the SharpClaw handshake and
-                discovery routes, exposes endpoint and tool descriptors, and
-                supplies a hostCapabilities client for host-owned operations.
-                The module never opens the SharpClaw database directly. Use
-                hostCapabilities.invokeStorage for declared document stores,
-                hostCapabilities.addConversationSteering for steering, and
-                hostCapabilities.invokeModuleTool when an agent workflow needs
-                to test another loaded module tool.
-
-                ModuleDev verifies JavaScript modules with node --check against
-                the manifest entrypoint before hot-load. If package.json
-                declares scripts.sharpclawVerify and run_declared_verify is not
-                false, ModuleDev then runs npm run sharpclawVerify. Dependency
-                installation is not implicit. Set install_dependencies only
-                when the workflow should run npm ci or npm install inside the
-                module workspace before verification.
-
-                Minimal module:
-
-                ```javascript
-                import { createSharpClawHost, json } from '@sharpclaw/module-host';
-
-                const host = createSharpClawHost({
-                  moduleId: 'agent_notes',
-                  toolPrefix: 'an',
-                  endpoints: [{
-                    method: 'GET',
-                    routePattern: '/modules/agent_notes/ping',
-                    handler: async () => json({ ok: true })
-                  }],
-                  storageContracts: []
-                });
-
-                await host.start();
-                ```
-                """,
-
-            ["python"] = """
-                SharpClaw Python module SDK.
-
-                Python modules use sharpclaw-module-host. The SDK hosts the
-                control server, normalizes endpoint and tool descriptors, and
-                supplies HostCapabilitiesClient. Use create_document_store for
-                host-owned indexed storage, add_conversation_steering for
-                next-turn feedback, and invoke_module_tool for test calls across
-                the sidecar boundary.
-
-                ModuleDev verifies Python modules with python -m py_compile
-                against the manifest entrypoint before hot-load. If pyproject.toml
-                contains [tool.sharpclaw] verify-command = "python -m module"
-                and run_declared_verify is not false, ModuleDev runs that command
-                without a shell. Dependency installation is not implicit. Set
-                install_dependencies only when the workflow should create a
-                module-local .sharpclaw-venv and install requirements.txt or the
-                pyproject package before verification.
-
-                Minimal module:
-
-                ```python
-                from sharpclaw_module_host import create_sharpclaw_host, json_response
-
-                async def ping(_context):
-                    return json_response({"ok": True})
-
-                host = create_sharpclaw_host(
-                    module_id="agent_notes",
-                    tool_prefix="an",
-                    endpoints=[{
-                        "method": "GET",
-                        "route_pattern": "/modules/agent_notes/ping",
-                        "handler": ping,
-                    }],
-                    storage_contracts=[],
-                )
-
-                if __name__ == "__main__":
-                    host.serve()
-                ```
-                """,
-
             ["storage"] = """
                 SharpClaw module storage SDK.
 
@@ -170,18 +88,6 @@ internal sealed class SharpClawSdkReferenceService
                 EF Core or LINQ execution into sidecars. Use query builders for
                 simple index filters and use claim when a job-like record must
                 be atomically selected and patched.
-
-                JavaScript example:
-
-                ```javascript
-                const jobs = createDocumentStore(context.hostCapabilities, 'jobs');
-                const due = await jobs.claim()
-                  .whereIndex('status').equalTo('pending')
-                  .whereIndex('nextRunAt').lessThanOrEqual(new Date().toISOString())
-                  .patch({ status: 'running' }, { status: 'running' })
-                  .take(1)
-                  .toListAsync();
-                ```
                 """,
 
             ["conversation_steering"] = """
@@ -191,48 +97,22 @@ internal sealed class SharpClawSdkReferenceService
                 persisted system-role chat message into a channel or thread.
                 The next model turn sees it through the normal thread history
                 path. Use it after build failures, successful hot-loads, test
-                results and any other result that
-                should guide the agent's next message. The host validates the
-                channel and thread relationship, stores source/category metadata,
-                and publishes thread activity when the target is threaded.
-
-                JavaScript:
-
-                ```javascript
-                await context.hostCapabilities.addConversationSteering({
-                  channelId,
-                  threadId,
-                  summary: 'Module hot-loaded. Next call mdk_test_tool.',
-                  source: 'module_dev',
-                  category: 'hot_load'
-                });
-                ```
-
-                Python:
-
-                ```python
-                context.host_capabilities.add_conversation_steering(
-                    channel_id,
-                    "Build failed with CS1002 in Module.cs.",
-                    thread_id=thread_id,
-                    source="module_dev",
-                    category="module_build",
-                )
-                ```
+                results, and other results that should guide the next message.
+                The host validates the channel and thread relationship, stores
+                source and category metadata, and publishes thread activity
+                when the target is threaded.
                 """,
 
             ["manifest"] = """
                 SharpClaw module manifest SDK.
 
-                Each external module workspace has module.json. DotNet modules
-                use runtime dotnet, entryAssembly, and moduleType. JavaScript
-                modules use runtime node and entrypoint module.mjs. Python
-                modules use runtime python and entrypoint module.py. The host
-                uses id, displayName, version, toolPrefix, enabled,
-                hostMode, exports, and requires during discovery and load.
+                Each external module workspace has module.json. .NET modules
+                use runtime dotnet, entryAssembly, and moduleType. The host
+                uses id, displayName, version, toolPrefix, enabled, hostMode,
+                exports, and requires during discovery and load.
 
                 Keep id and toolPrefix stable once a module is loaded. Changing
-                either value means the host will treat the module as a different
+                either value means the host treats the module as a different
                 contribution surface.
                 """,
         };

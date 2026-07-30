@@ -39,12 +39,6 @@
     <EmbeddedResource Include="Templates\ModuleClass.cs.template" WithCulture="false" />
     <EmbeddedResource Include="Templates\ProjectFile.csproj.template" WithCulture="false" />
     <EmbeddedResource Include="Templates\Manifest.json.template" WithCulture="false" />
-    <EmbeddedResource Include="Templates\NodePackage.json.template" WithCulture="false" />
-    <EmbeddedResource Include="Templates\NodeModule.mjs.template" WithCulture="false" />
-    <EmbeddedResource Include="Templates\NodeManifest.json.template" WithCulture="false" />
-    <EmbeddedResource Include="Templates\PythonPyproject.toml.template" WithCulture="false" />
-    <EmbeddedResource Include="Templates\PythonModule.py.template" WithCulture="false" />
-    <EmbeddedResource Include="Templates\PythonManifest.json.template" WithCulture="false" />
   </ItemGroup>
 
   <ItemGroup>

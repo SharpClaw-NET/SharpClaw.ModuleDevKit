@@ -4,7 +4,6 @@ using NUnit.Framework;
 using SharpClaw.Contracts.DTOs.Chat;
 using SharpClaw.Contracts.Modules;
 using SharpClaw.Modules.ModuleDev;
-using SharpClaw.Modules.ModuleDev.Services;
 
 namespace SharpClaw.ModuleDevKit.Tests;
 
@@ -39,6 +38,7 @@ public sealed class ModuleDevAgentWorkflowTests
 
         Assert.Multiple(() =>
         {
+            Assert.That(names, Does.Contain("scaffold_module"));
             Assert.That(names, Does.Contain("get_sdk_reference"));
             Assert.That(names, Does.Contain("apply_module_files"));
             Assert.That(names, Does.Contain("record_conversation_steering"));
@@ -47,11 +47,11 @@ public sealed class ModuleDevAgentWorkflowTests
     }
 
     [Test]
-    public async Task GetSdkReference_ReturnsRuntimeReferenceForAgents()
+    public async Task GetSdkReference_ReturnsDotNetReferenceForAgents()
     {
         var module = new ModuleDevModule();
         await using var provider = CreateProvider(new RecordingLifecycle(_externalModulesDir));
-        using var parameters = JsonDocument.Parse("""{"topic":"javascript"}""");
+        using var parameters = JsonDocument.Parse("""{"topic":"dotnet"}""");
 
         var result = await module.ExecuteToolAsync(
             "get_sdk_reference",
@@ -62,8 +62,8 @@ public sealed class ModuleDevAgentWorkflowTests
 
         Assert.Multiple(() =>
         {
-            Assert.That(result, Does.Contain("@sharpclaw/module-host"));
-            Assert.That(result, Does.Contain("addConversationSteering"));
+            Assert.That(result, Does.Contain("SharpClaw .NET module SDK"));
+            Assert.That(result, Does.Contain("SharpClaw.Contracts"));
         });
     }
 
@@ -72,24 +72,27 @@ public sealed class ModuleDevAgentWorkflowTests
     {
         var lifecycle = new RecordingLifecycle(_externalModulesDir);
         var steering = new RecordingConversationSteering();
-        var commands = new RecordingCommandRunner();
         var module = new ModuleDevModule();
-        await using var provider = CreateProvider(lifecycle, steering: steering, commandRunner: commands);
+        await using var provider = CreateProvider(lifecycle, steering);
         var channelId = Guid.Parse("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa");
         var threadId = Guid.Parse("bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb");
         using var parameters = JsonDocument.Parse($$$"""
             {
-              "module_id": "sample_node",
-              "runtime": "node",
+              "module_id": "sample_dotnet",
+              "build": false,
               "load": true,
               "files": [
                 {
                   "relative_path": "module.json",
-                  "content": "{\"id\":\"sample_node\",\"displayName\":\"Sample Node\",\"toolPrefix\":\"sn\",\"runtime\":\"node\",\"entrypoint\":\"module.mjs\",\"entryAssembly\":\"\"}"
+                  "content": "{\"id\":\"sample_dotnet\",\"displayName\":\"Sample Dotnet\",\"version\":\"0.1.0-beta\",\"toolPrefix\":\"sd\",\"runtime\":\"dotnet\",\"entryAssembly\":\"SampleDotnet.dll\",\"minHostVersion\":\"0.1.0-beta\"}"
                 },
                 {
-                  "relative_path": "module.mjs",
-                  "content": "export {};"
+                  "relative_path": "SampleDotnet.csproj",
+                  "content": "<Project Sdk=\"Microsoft.NET.Sdk\"><PropertyGroup><TargetFramework>net10.0</TargetFramework></PropertyGroup></Project>"
+                },
+                {
+                  "relative_path": "SampleDotnetModule.cs",
+                  "content": "public sealed class SampleDotnetModule {}"
                 }
               ],
               "conversation": {
@@ -107,278 +110,30 @@ public sealed class ModuleDevAgentWorkflowTests
             CancellationToken.None);
 
         using var payload = JsonDocument.Parse(result);
-        var stepNames = payload.RootElement.GetProperty("verification")
-            .GetProperty("steps")
-            .EnumerateArray()
-            .Select(step => step.GetProperty("name").GetString())
-            .ToArray();
 
         Assert.Multiple(() =>
         {
             Assert.That(payload.RootElement.GetProperty("success").GetBoolean(), Is.True);
-            Assert.That(stepNames, Is.EqualTo(new[] { "node_syntax" }));
-            Assert.That(File.Exists(Path.Combine(_externalModulesDir, "sample_node", "module.mjs")), Is.True);
-            Assert.That(lifecycle.LoadedDir, Is.EqualTo(Path.Combine(_externalModulesDir, "sample_node")));
-            Assert.That(commands.Commands, Has.Count.EqualTo(1));
-            Assert.That(commands.Commands[0].FileName, Is.EqualTo("node"));
-            Assert.That(commands.Commands[0].Arguments, Is.EqualTo(new[] { "--check", "module.mjs" }));
+            Assert.That(payload.RootElement.GetProperty("runtime").GetString(), Is.EqualTo("dotnet"));
+            Assert.That(payload.RootElement.TryGetProperty("verification", out _), Is.False);
+            Assert.That(File.Exists(Path.Combine(_externalModulesDir, "sample_dotnet", "SampleDotnet.csproj")), Is.True);
+            Assert.That(File.Exists(Path.Combine(_externalModulesDir, "sample_dotnet", "SampleDotnetModule.cs")), Is.True);
+            Assert.That(lifecycle.LoadedDir, Is.EqualTo(Path.Combine(_externalModulesDir, "sample_dotnet")));
             Assert.That(steering.Requests, Has.Count.EqualTo(1));
             Assert.That(steering.Requests[0].ChannelId, Is.EqualTo(channelId));
             Assert.That(steering.Requests[0].ThreadId, Is.EqualTo(threadId));
             Assert.That(steering.Requests[0].Category, Is.EqualTo("module_workflow"));
-            Assert.That(steering.Requests[0].Summary, Does.Contain("verified"));
             Assert.That(steering.Requests[0].Summary, Does.Contain("hot-loaded"));
-        });
-    }
-
-    [Test]
-    public async Task ApplyModuleFiles_WhenNodeVerificationFails_DoesNotLoadAndSteersDiagnostics()
-    {
-        var lifecycle = new RecordingLifecycle(_externalModulesDir);
-        var steering = new RecordingConversationSteering();
-        var commands = new RecordingCommandRunner();
-        commands.Enqueue(exitCode: 1, stderr: "SyntaxError: Unexpected token");
-        var module = new ModuleDevModule();
-        await using var provider = CreateProvider(lifecycle, steering: steering, commandRunner: commands);
-        var channelId = Guid.Parse("abababab-abab-abab-abab-abababababab");
-        using var parameters = JsonDocument.Parse($$$"""
-            {
-              "module_id": "bad_node",
-              "runtime": "node",
-              "files": [
-                {
-                  "relative_path": "module.json",
-                  "content": "{\"id\":\"bad_node\",\"displayName\":\"Bad Node\",\"toolPrefix\":\"bn\",\"runtime\":\"node\",\"entrypoint\":\"module.mjs\",\"entryAssembly\":\"\"}"
-                },
-                {
-                  "relative_path": "module.mjs",
-                  "content": "export const broken = ;"
-                }
-              ],
-              "conversation": {
-                "channel_id": "{{{channelId}}}"
-              }
-            }
-            """);
-
-        var result = await module.ExecuteToolAsync(
-            "apply_module_files",
-            parameters.RootElement,
-            Job(channelId),
-            provider,
-            CancellationToken.None);
-
-        using var payload = JsonDocument.Parse(result);
-
-        Assert.Multiple(() =>
-        {
-            Assert.That(payload.RootElement.GetProperty("success").GetBoolean(), Is.False);
-            Assert.That(
-                payload.RootElement.GetProperty("verification").GetProperty("success").GetBoolean(),
-                Is.False);
-            Assert.That(lifecycle.LoadedDir, Is.Null);
-            Assert.That(commands.Commands, Has.Count.EqualTo(1));
-            Assert.That(steering.Requests, Has.Count.EqualTo(1));
-            Assert.That(steering.Requests[0].Category, Is.EqualTo("module_verify"));
-            Assert.That(steering.Requests[0].Details, Does.Contain("Unexpected token"));
-        });
-    }
-
-    [Test]
-    public async Task ApplyModuleFiles_NodeDependencyInstallAndDeclaredVerifyRunBeforeLoad()
-    {
-        var lifecycle = new RecordingLifecycle(_externalModulesDir);
-        var steering = new RecordingConversationSteering();
-        var commands = new RecordingCommandRunner();
-        var module = new ModuleDevModule();
-        await using var provider = CreateProvider(lifecycle, steering: steering, commandRunner: commands);
-        var channelId = Guid.Parse("cdcdcdcd-cdcd-cdcd-cdcd-cdcdcdcdcdcd");
-        using var parameters = JsonDocument.Parse($$$"""
-            {
-              "module_id": "verified_node",
-              "runtime": "node",
-              "install_dependencies": true,
-              "run_declared_verify": true,
-              "load": false,
-              "files": [
-                {
-                  "relative_path": "module.json",
-                  "content": "{\"id\":\"verified_node\",\"displayName\":\"Verified Node\",\"toolPrefix\":\"vn\",\"runtime\":\"node\",\"entrypoint\":\"module.mjs\",\"entryAssembly\":\"\"}"
-                },
-                {
-                  "relative_path": "module.mjs",
-                  "content": "export {};"
-                },
-                {
-                  "relative_path": "package.json",
-                  "content": "{\"type\":\"module\",\"scripts\":{\"sharpclawVerify\":\"node --check module.mjs\"}}"
-                },
-                {
-                  "relative_path": "package-lock.json",
-                  "content": "{\"lockfileVersion\":3}"
-                }
-              ],
-              "conversation": {
-                "channel_id": "{{{channelId}}}"
-              }
-            }
-            """);
-
-        var result = await module.ExecuteToolAsync(
-            "apply_module_files",
-            parameters.RootElement,
-            Job(channelId),
-            provider,
-            CancellationToken.None);
-
-        using var payload = JsonDocument.Parse(result);
-        var commandLines = commands.Commands
-            .Select(command => command.FileName + " " + string.Join(' ', command.Arguments))
-            .ToArray();
-
-        Assert.Multiple(() =>
-        {
-            Assert.That(payload.RootElement.GetProperty("success").GetBoolean(), Is.True);
-            Assert.That(lifecycle.LoadedDir, Is.Null);
-            Assert.That(commandLines, Is.EqualTo(new[]
-            {
-                "npm ci",
-                "node --check module.mjs",
-                "npm run sharpclawVerify"
-            }));
-            Assert.That(
-                payload.RootElement.GetProperty("verification").GetProperty("steps").GetArrayLength(),
-                Is.EqualTo(3));
-        });
-    }
-
-    [Test]
-    public async Task ApplyModuleFiles_PythonCompileAndDeclaredVerifyRunBeforeLoad()
-    {
-        var lifecycle = new RecordingLifecycle(_externalModulesDir);
-        var steering = new RecordingConversationSteering();
-        var commands = new RecordingCommandRunner();
-        var module = new ModuleDevModule();
-        await using var provider = CreateProvider(lifecycle, steering: steering, commandRunner: commands);
-        var channelId = Guid.Parse("efefefef-efef-efef-efef-efefefefefef");
-        using var parameters = JsonDocument.Parse($$"""
-            {
-              "module_id": "verified_python",
-              "runtime": "python",
-              "load": true,
-              "files": [
-                {
-                  "relative_path": "module.json",
-                  "content": "{\"id\":\"verified_python\",\"displayName\":\"Verified Python\",\"toolPrefix\":\"vp\",\"runtime\":\"python\",\"entrypoint\":\"module.py\",\"entryAssembly\":\"\"}"
-                },
-                {
-                  "relative_path": "module.py",
-                  "content": "print('ok')\n"
-                },
-                {
-                  "relative_path": "pyproject.toml",
-                  "content": "[tool.sharpclaw]\nverify-command = \"python -m pytest\"\n"
-                }
-              ],
-              "conversation": {
-                "channel_id": "{{channelId}}"
-              }
-            }
-            """);
-
-        var result = await module.ExecuteToolAsync(
-            "apply_module_files",
-            parameters.RootElement,
-            Job(channelId),
-            provider,
-            CancellationToken.None);
-
-        using var payload = JsonDocument.Parse(result);
-        var commandLines = commands.Commands
-            .Select(command => command.FileName + " " + string.Join(' ', command.Arguments))
-            .ToArray();
-
-        Assert.Multiple(() =>
-        {
-            Assert.That(payload.RootElement.GetProperty("success").GetBoolean(), Is.True);
-            Assert.That(lifecycle.LoadedDir, Is.EqualTo(Path.Combine(_externalModulesDir, "verified_python")));
-            Assert.That(commandLines, Is.EqualTo(new[]
-            {
-                "python -m py_compile module.py",
-                "python -m pytest"
-            }));
-            Assert.That(steering.Requests, Has.Count.EqualTo(1));
-            Assert.That(steering.Requests[0].Summary, Does.Contain("verified"));
-        });
-    }
-
-    [Test]
-    public async Task ApplyModuleFiles_InvalidPythonVerifyCommandFailsAsVerificationNotWorkflowCrash()
-    {
-        var lifecycle = new RecordingLifecycle(_externalModulesDir);
-        var steering = new RecordingConversationSteering();
-        var commands = new RecordingCommandRunner();
-        var module = new ModuleDevModule();
-        await using var provider = CreateProvider(lifecycle, steering: steering, commandRunner: commands);
-        var channelId = Guid.Parse("12121212-3434-5656-7878-909090909090");
-        using var parameters = JsonDocument.Parse($$"""
-            {
-              "module_id": "unsafe_python",
-              "runtime": "python",
-              "files": [
-                {
-                  "relative_path": "module.json",
-                  "content": "{\"id\":\"unsafe_python\",\"displayName\":\"Unsafe Python\",\"toolPrefix\":\"up\",\"runtime\":\"python\",\"entrypoint\":\"module.py\",\"entryAssembly\":\"\"}"
-                },
-                {
-                  "relative_path": "module.py",
-                  "content": "print('ok')\n"
-                },
-                {
-                  "relative_path": "pyproject.toml",
-                  "content": "[tool.sharpclaw]\nverify-command = \"python -m pytest && echo unsafe\"\n"
-                }
-              ],
-              "conversation": {
-                "channel_id": "{{channelId}}"
-              }
-            }
-            """);
-
-        var result = await module.ExecuteToolAsync(
-            "apply_module_files",
-            parameters.RootElement,
-            Job(channelId),
-            provider,
-            CancellationToken.None);
-
-        using var payload = JsonDocument.Parse(result);
-        var commandLines = commands.Commands
-            .Select(command => command.FileName + " " + string.Join(' ', command.Arguments))
-            .ToArray();
-
-        Assert.Multiple(() =>
-        {
-            Assert.That(payload.RootElement.GetProperty("success").GetBoolean(), Is.False);
-            Assert.That(
-                payload.RootElement.GetProperty("verification").GetProperty("error").GetString(),
-                Does.Contain("shell metacharacters"));
-            Assert.That(lifecycle.LoadedDir, Is.Null);
-            Assert.That(commandLines, Is.EqualTo(new[] { "python -m py_compile module.py" }));
-            Assert.That(steering.Requests, Has.Count.EqualTo(1));
-            Assert.That(steering.Requests[0].Category, Is.EqualTo("module_verify"));
         });
     }
 
     private static ServiceProvider CreateProvider(
         RecordingLifecycle lifecycle,
-        RecordingConversationSteering? steering = null,
-        RecordingCommandRunner? commandRunner = null)
+        RecordingConversationSteering? steering = null)
     {
         var services = new ServiceCollection();
         new ModuleDevModule().ConfigureServices(services);
         services.AddSingleton<IModuleLifecycleManager>(lifecycle);
-        services.AddSingleton<IModuleRuntimeCommandRunner>(commandRunner ?? new RecordingCommandRunner());
         services.AddSingleton<IModuleInfoProvider>(new EmptyModuleInfoProvider());
         services.AddSingleton<IConversationSteering>(steering ?? new RecordingConversationSteering());
         return services.BuildServiceProvider();
@@ -396,7 +151,6 @@ public sealed class ModuleDevAgentWorkflowTests
     {
         public string ExternalModulesDir { get; } = externalModulesDir;
         public string? LoadedDir { get; private set; }
-        public string? ReloadedId { get; private set; }
 
         public bool IsModuleRegistered(string moduleId) => false;
         public bool IsToolPrefixRegistered(string toolPrefix) => false;
@@ -417,11 +171,8 @@ public sealed class ModuleDevAgentWorkflowTests
         public Task<ModuleStateResponse> ReloadExternalAsync(
             string moduleId,
             IServiceProvider hostServices,
-            CancellationToken ct = default)
-        {
-            ReloadedId = moduleId;
-            return Task.FromResult(State(moduleId));
-        }
+            CancellationToken ct = default) =>
+            Task.FromResult(State(moduleId));
 
         private static ModuleStateResponse State(string moduleId) =>
             new(
@@ -479,39 +230,6 @@ public sealed class ModuleDevAgentWorkflowTests
                     request.Category))
                 .ToList();
             return Task.FromResult(rows);
-        }
-    }
-
-    private sealed class RecordingCommandRunner : IModuleRuntimeCommandRunner
-    {
-        private readonly Queue<(int ExitCode, string Stdout, string Stderr, bool TimedOut)> _outcomes = new();
-
-        public List<ModuleRuntimeCommand> Commands { get; } = [];
-
-        public void Enqueue(
-            int exitCode = 0,
-            string stdout = "",
-            string stderr = "",
-            bool timedOut = false) =>
-            _outcomes.Enqueue((exitCode, stdout, stderr, timedOut));
-
-        public Task<ModuleRuntimeCommandResult> RunAsync(
-            ModuleRuntimeCommand command,
-            CancellationToken ct = default)
-        {
-            Commands.Add(command);
-            var outcome = _outcomes.Count > 0
-                ? _outcomes.Dequeue()
-                : (ExitCode: 0, Stdout: "", Stderr: "", TimedOut: false);
-            return Task.FromResult(new ModuleRuntimeCommandResult(
-                command.FileName,
-                command.Arguments,
-                command.WorkingDirectory,
-                outcome.ExitCode,
-                outcome.TimedOut,
-                outcome.Stdout,
-                outcome.Stderr,
-                TimeSpan.FromMilliseconds(2)));
         }
     }
 }

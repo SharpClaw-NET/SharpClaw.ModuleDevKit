@@ -13,22 +13,12 @@ internal sealed class ModuleWorkspaceService
     private static readonly HashSet<string> AllowedExtensions =
     [
         ".cs",
+        ".csproj",
         ".json",
-        ".js",
-        ".mjs",
-        ".ts",
-        ".jsx",
-        ".tsx",
-        ".css",
-        ".html",
         ".md",
-        ".py",
-        ".pyi",
-        ".toml",
         ".txt",
         ".yaml",
-        ".yml",
-        ".lock"
+        ".yml"
     ];
 
     private readonly string _externalModulesDir;

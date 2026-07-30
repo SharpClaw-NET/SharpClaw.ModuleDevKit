@@ -12,13 +12,13 @@ SharpClaw module package. The NuGet package carries its runtime payload under
 and non-framework dependency assemblies required by the sidecar loader.
 
 ```powershell
-dotnet add package SharpClaw.Modules.ModuleDev --version 0.1.1-beta.1
+dotnet add package SharpClaw.Modules.ModuleDev --version 0.1.1-beta.2
 ```
 
 After the host loads the module, agents can call tools such as scaffold, file
-read and write, build, runtime verification, load and reload, process
-inspection, SDK reference lookup, and conversation
-steering workflows through the `mdk` prefix. The module keeps file writes
+read and write, build, load and reload, process inspection, SDK reference
+lookup, and conversation steering workflows through the `mdk` prefix. The
+module creates and manages .NET module workspaces only. It keeps file writes
 scoped to SharpClaw's external module workspace and validates module IDs,
 relative paths, file names, and build project extensions before touching disk
 or starting `dotnet build`.
