@@ -28,7 +28,10 @@
   </ItemGroup>
 
   <ItemGroup>
+    <PackageReference Include="SharpClaw.AgentOrchestration.Contracts" />
     <PackageReference Include="SharpClaw.Contracts" />
+    <PackageReference Include="SharpClaw.ModuleSDK" />
+    <PackageReference Include="SharpClaw.ModuleSDK.HostOperations" />
   </ItemGroup>
 
   <ItemGroup>

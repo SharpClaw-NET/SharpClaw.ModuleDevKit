@@ -4,6 +4,7 @@ using System.Text.Json;
 using System.Text.Json.Serialization;
 
 using SharpClaw.Contracts.Modules;
+using SharpClaw.ModuleSDK.HostOperations;
 
 namespace SharpClaw.Modules.ModuleDev.Services;
 
@@ -11,9 +12,7 @@ namespace SharpClaw.Modules.ModuleDev.Services;
 /// Queries the local development environment: installed SDKs, runtimes,
 /// global tools, contracts assembly info, and loaded module metadata.
 /// </summary>
-internal sealed class DevEnvironmentService(
-    IModuleInfoProvider moduleInfoProvider,
-    IModuleLifecycleManager lifecycleManager)
+internal sealed class DevEnvironmentService
 {
     internal sealed record DevEnvironmentInfo(
         IReadOnlyList<string> DotnetSdks,
@@ -23,18 +22,12 @@ internal sealed class DevEnvironmentService(
         string ContractsAssemblyPath,
         string HostVersion,
         IReadOnlyList<RegisteredModuleInfo> RegisteredModules,
-        IReadOnlyList<AvailableContractInfo> AvailableContracts,
         string ExternalModulesDir);
 
     internal sealed record RegisteredModuleInfo(
         string Id,
         string Prefix,
         IReadOnlyList<string> ExportedContracts);
-
-    internal sealed record AvailableContractInfo(
-        string Name,
-        string ServiceType,
-        string Provider);
 
     private static readonly JsonSerializerOptions JsonOpts = new()
     {
@@ -43,22 +36,11 @@ internal sealed class DevEnvironmentService(
     };
 
     /// <summary>
-    /// Gets the path to the SharpClaw.Contracts assembly.
-    /// Used by the scaffold service to generate .csproj references.
-    /// </summary>
-    public string ContractsAssemblyPath
-    {
-        get
-        {
-            var contractsAssembly = typeof(ISharpClawCoreModule).Assembly;
-            return contractsAssembly.Location;
-        }
-    }
-
-    /// <summary>
     /// Gather full development environment information.
     /// </summary>
-    public async Task<DevEnvironmentInfo> GetEnvironmentAsync(CancellationToken ct = default)
+    public async Task<DevEnvironmentInfo> GetEnvironmentAsync(
+        HostModuleListResult host,
+        CancellationToken ct = default)
     {
         var sdksTask = RunDotnetCommandAsync("--list-sdks", ct);
         var runtimesTask = RunDotnetCommandAsync("--list-runtimes", ct);
@@ -70,28 +52,17 @@ internal sealed class DevEnvironmentService(
         var runtimes = ParseLines(await runtimesTask);
         var tools = ParseLines(await toolsTask);
 
-        var contractsAssembly = typeof(ISharpClawCoreModule).Assembly;
+        var contractsAssembly = typeof(ISharpClawModule).Assembly;
         var contractsVersion = contractsAssembly.GetName().Version?.ToString() ?? "unknown";
         var contractsPath = contractsAssembly.Location;
 
         var hostAssembly = Assembly.GetEntryAssembly();
         var hostVersion = hostAssembly?.GetName().Version?.ToString() ?? "unknown";
 
-        var modules = new List<RegisteredModuleInfo>();
-        var contracts = new List<AvailableContractInfo>();
-
-        foreach (var mod in moduleInfoProvider.GetAllModules())
-        {
-            modules.Add(new RegisteredModuleInfo(mod.Id, mod.ToolPrefix, mod.ExportedContractNames));
-
-            foreach (var contractName in mod.ExportedContractNames)
-            {
-                contracts.Add(new AvailableContractInfo(
-                    contractName,
-                    contractName,
-                    mod.Id));
-            }
-        }
+        var modules = host.Modules.Select(module => new RegisteredModuleInfo(
+            module.State.ModuleId,
+            module.State.ToolPrefix,
+            module.ExportedContractNames)).ToArray();
 
         return new DevEnvironmentInfo(
             DotnetSdks: sdks,
@@ -101,8 +72,7 @@ internal sealed class DevEnvironmentService(
             ContractsAssemblyPath: contractsPath,
             HostVersion: hostVersion,
             RegisteredModules: modules,
-            AvailableContracts: contracts,
-            ExternalModulesDir: lifecycleManager.ExternalModulesDir);
+            ExternalModulesDir: host.ExternalModulesDirectory);
     }
 
     /// <summary>

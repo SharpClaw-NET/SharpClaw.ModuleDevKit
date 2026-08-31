@@ -29,13 +29,37 @@ internal sealed class ModuleWorkspaceService
             UnmappedMemberHandling = JsonUnmappedMemberHandling.Disallow,
         };
 
-    private readonly string _externalModulesDir;
+    private readonly object _rootGate = new();
+    private string? _externalModulesDir;
 
-    public string ExternalModulesDir => _externalModulesDir;
+    public string ExternalModulesDir => _externalModulesDir
+        ?? throw new InvalidOperationException(
+            "The host has not supplied the external module directory.");
 
-    public ModuleWorkspaceService(IModuleLifecycleManager lifecycle)
+    public void BindExternalModulesDirectory(string externalModulesDirectory)
     {
-        _externalModulesDir = lifecycle.ExternalModulesDir;
+        ArgumentException.ThrowIfNullOrWhiteSpace(externalModulesDirectory);
+        if (!Path.IsPathFullyQualified(externalModulesDirectory))
+            throw new ArgumentException(
+                "The external module directory must be a fully qualified path.",
+                nameof(externalModulesDirectory));
+
+        var canonical = Path.GetFullPath(externalModulesDirectory)
+            .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+        lock (_rootGate)
+        {
+            if (_externalModulesDir is null)
+            {
+                _externalModulesDir = canonical;
+                return;
+            }
+
+            if (!string.Equals(_externalModulesDir, canonical, StringComparison.OrdinalIgnoreCase))
+            {
+                throw new InvalidOperationException(
+                    "The host supplied a different external module directory.");
+            }
+        }
     }
 
     /// <summary>
@@ -45,8 +69,9 @@ internal sealed class ModuleWorkspaceService
     {
         ValidateModuleId(moduleId);
 
-        var moduleDir = Path.GetFullPath(Path.Combine(_externalModulesDir, moduleId));
-        ModulePathGuard.EnsureContainedIn(moduleDir, _externalModulesDir);
+        var root = ExternalModulesDir;
+        var moduleDir = Path.GetFullPath(Path.Combine(root, moduleId));
+        ModulePathGuard.EnsureContainedIn(moduleDir, root);
 
         return moduleDir;
     }
@@ -100,7 +125,7 @@ internal sealed class ModuleWorkspaceService
         var fullPath = ResolveFilePath(moduleId, relativePath);
         ValidateExtension(fullPath);
         ValidateContent(relativePath, content);
-        ModulePathGuard.EnsureContainedIn(fullPath, _externalModulesDir);
+        ModulePathGuard.EnsureContainedIn(fullPath, ExternalModulesDir);
 
         return fullPath;
     }
@@ -112,7 +137,7 @@ internal sealed class ModuleWorkspaceService
         string moduleId, string relativePath, int maxLines = 500, CancellationToken ct = default)
     {
         var fullPath = ResolveFilePath(moduleId, relativePath);
-        ModulePathGuard.EnsureContainedIn(fullPath, _externalModulesDir);
+        ModulePathGuard.EnsureContainedIn(fullPath, ExternalModulesDir);
 
         if (!File.Exists(fullPath))
             throw new FileNotFoundException($"File not found: {relativePath}", fullPath);
@@ -132,7 +157,9 @@ internal sealed class ModuleWorkspaceService
     /// </summary>
     public IReadOnlyList<string> ListFiles(string moduleId, string? includePattern = null)
     {
-        var moduleDir = ModulePathGuard.EnsureContainedIn(ResolveModuleDir(moduleId), _externalModulesDir);
+        var moduleDir = ModulePathGuard.EnsureContainedIn(
+            ResolveModuleDir(moduleId),
+            ExternalModulesDir);
 
         if (!Directory.Exists(moduleDir))
             return [];

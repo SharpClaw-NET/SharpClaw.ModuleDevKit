@@ -2,17 +2,14 @@ using System.Reflection;
 using System.Text;
 using System.Text.RegularExpressions;
 
-using SharpClaw.Contracts.Modules;
+using SharpClaw.ModuleSDK.HostOperations;
 
 namespace SharpClaw.Modules.ModuleDev.Services;
 
 /// <summary>
 /// Generates module project files from a specification using embedded templates.
 /// </summary>
-internal sealed partial class ModuleScaffoldService(
-    ModuleWorkspaceService workspace,
-    DevEnvironmentService devEnv,
-    IModuleLifecycleManager lifecycle)
+internal sealed partial class ModuleScaffoldService(ModuleWorkspaceService workspace)
 {
     internal const string DotNetRuntime = "dotnet";
 
@@ -42,9 +39,12 @@ internal sealed partial class ModuleScaffoldService(
     /// <summary>
     /// Generate a complete module project from a spec.
     /// </summary>
-    public async Task<ScaffoldResult> ScaffoldAsync(ScaffoldSpec spec, CancellationToken ct = default)
+    public async Task<ScaffoldResult> ScaffoldAsync(
+        ScaffoldSpec spec,
+        HostModuleListResult host,
+        CancellationToken ct = default)
     {
-        ValidateSpec(spec);
+        ValidateSpec(spec, host);
 
         var moduleDir = workspace.ResolveModuleDir(spec.ModuleId);
         Directory.CreateDirectory(moduleDir);
@@ -60,7 +60,6 @@ internal sealed partial class ModuleScaffoldService(
 
         // 1. Generate .csproj
         var csprojContent = LoadTemplate("ProjectFile.csproj.template")
-            .Replace("{{CONTRACTS_PATH}}", devEnv.ContractsAssemblyPath)
             .Replace("{{ASSEMBLY_NAME}}", assemblyName)
             .Replace("{{DESCRIPTION}}", spec.Description ?? $"{spec.DisplayName} SharpClaw module.");
 
@@ -92,6 +91,8 @@ internal sealed partial class ModuleScaffoldService(
             .Replace("{{MODULE_ID}}", spec.ModuleId)
             .Replace("{{DISPLAY_NAME}}", spec.DisplayName)
             .Replace("{{TOOL_PREFIX}}", spec.ToolPrefix)
+            .Replace("{{NAMESPACE}}", ns)
+            .Replace("{{CLASS_NAME}}", className)
             .Replace("{{ASSEMBLY_NAME}}", assemblyName)
             .Replace("{{DESCRIPTION}}", spec.Description ?? "");
 
@@ -103,7 +104,7 @@ internal sealed partial class ModuleScaffoldService(
 
     // ── Validation ────────────────────────────────────────────────
 
-    private void ValidateSpec(ScaffoldSpec spec)
+    private static void ValidateSpec(ScaffoldSpec spec, HostModuleListResult host)
     {
         if (!ModuleIdRegex().IsMatch(spec.ModuleId))
             throw new ArgumentException(
@@ -116,12 +117,13 @@ internal sealed partial class ModuleScaffoldService(
         if (string.IsNullOrWhiteSpace(spec.DisplayName))
             throw new ArgumentException("Display name is required.");
 
-        // Check uniqueness against loaded modules
-        if (lifecycle.IsModuleRegistered(spec.ModuleId))
+        if (host.Modules.Any(module =>
+            string.Equals(module.State.ModuleId, spec.ModuleId, StringComparison.Ordinal)))
             throw new InvalidOperationException(
                 $"Module ID '{spec.ModuleId}' is already registered.");
 
-        if (lifecycle.IsToolPrefixRegistered(spec.ToolPrefix))
+        if (host.Modules.Any(module =>
+            string.Equals(module.State.ToolPrefix, spec.ToolPrefix, StringComparison.Ordinal)))
             throw new InvalidOperationException(
                 $"Tool prefix '{spec.ToolPrefix}' is already in use.");
     }
@@ -141,16 +143,16 @@ internal sealed partial class ModuleScaffoldService(
     private static string BuildToolStubs(IReadOnlyList<ToolStub>? tools)
     {
         if (tools is null or { Count: 0 })
-            return "        // No tools defined — add ModuleToolDefinition entries here";
+            return "        // Add ToolDescriptor entries here.";
 
         var sb = new StringBuilder();
         foreach (var tool in tools)
         {
             var desc = tool.Description ?? $"TODO: describe {tool.Name}";
+            ValidateToolName(tool.Name);
             sb.AppendLine($"        new(\"{tool.Name}\",");
             sb.AppendLine($"            \"{EscapeString(desc)}\",");
-            sb.AppendLine($"            EmptySchema(),");
-            sb.AppendLine($"            new ModuleToolPermission(IsPerResource: false, Check: null, DelegateTo: null)),");
+            sb.AppendLine("            ToolSchemas.EmptyObject),");
         }
 
         return sb.ToString().TrimEnd();
@@ -159,12 +161,14 @@ internal sealed partial class ModuleScaffoldService(
     private static string BuildToolDispatch(IReadOnlyList<ToolStub>? tools)
     {
         if (tools is null or { Count: 0 })
-            return "            // No tools defined";
+            return "            // Add Tool handlers here.";
 
         var sb = new StringBuilder();
         foreach (var tool in tools)
         {
-            sb.AppendLine($"            \"{tool.Name}\" => Task.FromResult(\"TODO: implement {EscapeString(tool.Name)}\"),");
+            ValidateToolName(tool.Name);
+            sb.AppendLine(
+                $"            \"{tool.Name}\" => ValueTask.FromResult(ToolResult.Text(\"TODO: implement {EscapeString(tool.Name)}\")),");
         }
 
         return sb.ToString().TrimEnd();
@@ -180,9 +184,19 @@ internal sealed partial class ModuleScaffoldService(
     private static string EscapeString(string s) =>
         s.Replace("\\", "\\\\").Replace("\"", "\\\"");
 
+    private static void ValidateToolName(string toolName)
+    {
+        if (!ToolNameRegex().IsMatch(toolName))
+            throw new ArgumentException(
+                $"Invalid Tool name '{toolName}'. Must contain a canonical identifier.");
+    }
+
     [GeneratedRegex(@"^[a-z][a-z0-9_]{0,39}$")]
     private static partial Regex ModuleIdRegex();
 
     [GeneratedRegex(@"^[a-z][a-z0-9]{0,19}$")]
     private static partial Regex ToolPrefixRegex();
+
+    [GeneratedRegex(@"^[a-z][a-z0-9_]{0,63}$")]
+    private static partial Regex ToolNameRegex();
 }

@@ -6,28 +6,32 @@ namespace {{NAMESPACE}};
 
 public sealed class {{CLASS_NAME}} : ISharpClawModule
 {
-    public string Id => "{{MODULE_ID}}";
-    public string DisplayName => "{{DISPLAY_NAME}}";
-    public string ToolPrefix => "{{TOOL_PREFIX}}";
+    public ModuleIdentity Identity { get; } = new(
+        "{{MODULE_ID}}",
+        "{{DISPLAY_NAME}}",
+        "{{TOOL_PREFIX}}");
 
-    public void ConfigureServices(IServiceCollection services)
+    public void Configure(ISharpClawModuleBuilder module)
     {
-        // Register your services here
+        module.Services.AddSingleton<GeneratedToolHandler>();
+        foreach (var descriptor in GeneratedToolHandler.Descriptors)
+            module.Tools.Add<GeneratedToolHandler>(descriptor);
     }
+}
 
-    public IReadOnlyList<ModuleToolDefinition> GetToolDefinitions() =>
+public sealed class GeneratedToolHandler : IToolHandler
+{
+    public static IReadOnlyList<ToolDescriptor> Descriptors { get; } =
     [
 {{TOOL_STUBS}}
     ];
 
-    public Task<string> ExecuteToolAsync(
-        string toolName, JsonElement parameters,
-        AgentJobContext job, IServiceProvider sp, CancellationToken ct)
-    {
-        return toolName switch
+    public ValueTask<ToolResult> InvokeAsync(
+        ToolInvocation invocation,
+        CancellationToken ct) =>
+        invocation.ToolName switch
         {
 {{TOOL_DISPATCH}}
-            _ => throw new NotSupportedException($"Unknown tool: {toolName}")
+            _ => throw new NotSupportedException($"Unknown Tool: {invocation.ToolName}"),
         };
-    }
 }

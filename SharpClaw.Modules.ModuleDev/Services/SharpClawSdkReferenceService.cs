@@ -47,34 +47,33 @@ internal sealed class SharpClawSdkReferenceService
             ["dotnet"] = """
                 SharpClaw .NET module SDK.
 
-                The .NET SDK surface is SharpClaw.Contracts. A module implements
-                ISharpClawCoreModule and returns descriptors for tools, inline
-                tools, contracts, resources, flags, header tags, endpoints, and
-                CLI commands. Keep module code behind SharpClaw.Contracts
-                interfaces and explicit package references. Do not reference
-                SharpClaw.Runtime.BLL, SharpClaw.Runtime.INF, or a host
-                DbContext from a module. Host-owned features such as lifecycle,
-                module storage, and conversation steering use Contracts
-                interfaces.
+                A module implements ISharpClawModule. It registers services,
+                contracts, storage, actions, events, hooks, Tools, and chat
+                contributors through ISharpClawModuleBuilder. An application
+                module implements ISharpClawApplicationModule. It registers
+                neutral CLI and endpoint handlers through
+                ISharpClawApplicationBuilder. Keep module code behind the
+                Contracts and ModuleSDK boundaries. Do not reference Runtime
+                assemblies or a host DbContext.
 
                 Minimal tool flow:
 
                 ```csharp
-                public IReadOnlyList<ModuleToolDefinition> GetToolDefinitions() =>
-                [
-                    new("echo", "Return text.", EmptySchema(),
-                        new ModuleToolPermission(false, null, null))
-                ];
+                public void Configure(ISharpClawModuleBuilder module)
+                {
+                    module.Tools.Add(
+                        new ToolDescriptor("echo", "Return text.", EmptySchema()),
+                        typeof(EchoToolHandler));
+                }
 
-                public Task<string> ExecuteToolAsync(
-                    string toolName,
-                    JsonElement parameters,
-                    AgentJobContext job,
-                    IServiceProvider sp,
-                    CancellationToken ct) =>
-                    toolName == "echo"
-                        ? Task.FromResult(parameters.GetProperty("text").GetString() ?? "")
-                        : throw new NotSupportedException(toolName);
+                public sealed class EchoToolHandler : IToolHandler
+                {
+                    public ValueTask<ToolResult> InvokeAsync(
+                        ToolInvocation invocation,
+                        CancellationToken cancellationToken) =>
+                        ValueTask.FromResult(ToolResult.Text(
+                            invocation.Arguments.GetProperty("text").GetString() ?? ""));
+                }
                 ```
                 """,
 
@@ -82,8 +81,8 @@ internal sealed class SharpClawSdkReferenceService
                 SharpClaw module storage SDK.
 
                 Storage is host-owned. Modules declare storage contracts in
-                discovery and call the host capability server for get, upsert,
-                batchUpsert, delete, batchDelete, list, query, and claim.
+                their module graph. Sidecars use IModuleStorageGateway for get,
+                upsert, batch upsert, delete, batch delete, list, query, and claim.
                 Query and claim operate on declared indexes rather than leaking
                 EF Core or LINQ execution into sidecars. Use query builders for
                 simple index filters and use claim when a job-like record must
@@ -93,14 +92,11 @@ internal sealed class SharpClawSdkReferenceService
             ["conversation_steering"] = """
                 SharpClaw conversation steering SDK.
 
-                Conversation steering is a host capability that writes a
-                persisted system-role chat message into a channel or thread.
-                The next model turn sees it through the normal thread history
-                path. Use it after build failures, successful hot-loads, test
-                results, and other results that should guide the next message.
-                The host validates the channel and thread relationship, stores
-                source and category metadata, and publishes thread activity
-                when the target is threaded.
+                Context owns conversation steering. ModuleDev uses the typed
+                Context action contracts through IHostActionEntry. Use steering
+                after build failures, successful loads, test results, and other
+                results that must guide the next Context turn. The Context module
+                validates identity and stores the steering record.
                 """,
 
             ["manifest"] = """
