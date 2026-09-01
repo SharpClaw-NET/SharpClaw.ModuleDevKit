@@ -12,8 +12,8 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <PackageReference Include="SharpClaw.Contracts" Version="[0.5.0-beta.33]" />
-    <PackageReference Include="SharpClaw.ModuleSDK" Version="[0.5.0-beta.14]" />
+    <PackageReference Include="SharpClaw.Contracts" Version="[0.5.0-beta.35]" />
+    <PackageReference Include="SharpClaw.ModuleSDK" Version="[0.5.0-beta.15]" />
   </ItemGroup>
 
   <ItemGroup>
