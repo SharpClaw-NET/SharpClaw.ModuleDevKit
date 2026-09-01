@@ -366,7 +366,7 @@ public sealed class ModuleDevBoundaryTests
             Assert.That(source, Does.Contain("IToolHandler"));
             Assert.That(source, Does.Not.Contain("ISharpClawCoreModule"));
             Assert.That(project, Does.Contain("SharpClaw.ModuleSDK"));
-            Assert.That(project, Does.Contain("[0.5.0-beta.35]"));
+            Assert.That(project, Does.Contain("[0.5.0-beta.36]"));
             Assert.That(manifest, Does.Contain("\"hostMode\": \"sidecar\""));
             Assert.That(manifest, Does.Contain("\"moduleType\": \"SampleModule.SampleModuleModule\""));
         });
