@@ -65,7 +65,7 @@ public static class ModuleDevContracts
     public static ActionDescriptor<ModuleDevAction, ModuleDevActionResult> MutationDescriptor { get; } =
         CreateDescriptor("module-dev.mutate", "module-dev.mutation", true, MutationRepeatPolicy);
 
-    public static IReadOnlyList<ToolDescriptor> ToolDescriptors { get; } =
+    public static IReadOnlyList<ToolDescriptor> ToolDescriptors =>
     [
         Tool("scaffold_module", "Create a .NET module project.", ScaffoldSchema),
         Tool("write_file", "Write one module workspace file.", WriteFileSchema),

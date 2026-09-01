@@ -40,6 +40,11 @@ public sealed class ModuleDevBoundaryTests
             new ModuleDevModule(),
             LoadManifest(),
             new ModuleCompilationOptions { HostingMode = ModuleHostingMode.OutOfProcess });
+        var discovery = SidecarDiscoveryFactory.CreateDocument(
+            graph,
+            protocolVersion: 1,
+            sequence: 1,
+            deadline: DateTimeOffset.UtcNow.AddMinutes(1));
 
         Assert.Multiple(() =>
         {
@@ -55,6 +60,9 @@ public sealed class ModuleDevBoundaryTests
             Assert.That(graph.Application.Endpoints, Has.Count.EqualTo(11));
             Assert.That(graph.Storage, Is.Empty);
             Assert.That(graph.Contracts, Is.Empty);
+            Assert.That(
+                discovery.ToolHandlers.All(tool => tool.ParametersSchema.ValueKind == JsonValueKind.Object),
+                Is.True);
         });
     }
 
