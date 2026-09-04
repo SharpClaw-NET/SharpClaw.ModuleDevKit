@@ -8,7 +8,7 @@ contract boundary.
 
 Install the package into a SharpClaw host the same way as any runtime-loadable
 SharpClaw module package. The NuGet package carries its runtime payload under
-`sharpclaw/`, including `module.json`, the module assembly, dependency file,
+`sharpclaw/`, including `package.json`, the module assembly, dependency file,
 and non-framework dependency assemblies required by the sidecar loader.
 
 ```powershell

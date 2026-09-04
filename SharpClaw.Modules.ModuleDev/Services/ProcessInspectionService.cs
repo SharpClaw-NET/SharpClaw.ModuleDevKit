@@ -47,9 +47,9 @@ internal sealed partial class ProcessInspectionService
                 JsonOpts));
 
         var sections = include?.Select(s => s.ToLowerInvariant()).ToHashSet()
-            ?? ["modules", "exports", "window_classes", "threads"];
+            ?? ["contributions", "exports", "window_classes", "threads"];
 
-        var includeModules = sections.Contains("modules") || sections.Contains("exports");
+        var includeModules = sections.Contains("contributions") || sections.Contains("exports");
         var includeExports = sections.Contains("exports");
         var includeWindowClasses = sections.Contains("window_classes");
         var includeThreads = sections.Contains("threads");

@@ -49,21 +49,19 @@ internal sealed class SharpClawSdkReferenceService
 
                 A module implements ISharpClawModule. It registers services,
                 contracts, storage, actions, events, hooks, Tools, and chat
-                contributors through ISharpClawModuleBuilder. An application
-                module implements ISharpClawApplicationModule. It registers
-                neutral CLI and endpoint handlers through
-                ISharpClawApplicationBuilder. Keep module code behind the
+                contributors through IServiceCollection. The same service
+                collection registers neutral CLI and endpoint handlers.
+                Keep module code behind the
                 Contracts and ModuleSDK boundaries. Do not reference Runtime
                 assemblies or a host DbContext.
 
                 Minimal tool flow:
 
                 ```csharp
-                public void Configure(ISharpClawModuleBuilder module)
+                public void ConfigureServices(IServiceCollection services)
                 {
-                    module.Tools.Add(
-                        new ToolDescriptor("echo", "Return text.", EmptySchema()),
-                        typeof(EchoToolHandler));
+                    services.AddTool<EchoToolHandler>(
+                        new ToolDescriptor("echo", "Return text.", EmptySchema()));
                 }
 
                 public sealed class EchoToolHandler : IToolHandler
@@ -81,7 +79,7 @@ internal sealed class SharpClawSdkReferenceService
                 SharpClaw module storage SDK.
 
                 Storage is host-owned. Modules declare storage contracts in
-                their module graph. Sidecars use IModuleStorageGateway for get,
+                their module graph. Sidecars use IScopedStorageGateway for get,
                 upsert, batch upsert, delete, batch delete, list, query, and claim.
                 Query and claim operate on declared indexes rather than leaking
                 EF Core or LINQ execution into sidecars. Use query builders for
@@ -102,8 +100,8 @@ internal sealed class SharpClawSdkReferenceService
             ["manifest"] = """
                 SharpClaw module manifest SDK.
 
-                Each external module workspace has module.json. .NET modules
-                use runtime dotnet, entryAssembly, and moduleType. The host
+                Each external module workspace has package.json. .NET modules
+                use runtime dotnet, entryAssembly, and entryType. The host
                 uses id, displayName, version, toolPrefix, enabled, hostMode,
                 exports, and requires during discovery and load.
 

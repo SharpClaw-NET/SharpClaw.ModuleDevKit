@@ -35,16 +35,16 @@ internal sealed partial class ModuleBuildService(ModuleWorkspaceService workspac
     /// Build a module project. Returns structured diagnostics.
     /// </summary>
     public async Task<BuildResult> BuildAsync(
-        string moduleId, string configuration = "Debug", CancellationToken ct = default)
+        string SourceId, string configuration = "Debug", CancellationToken ct = default)
     {
         if (!AllowedConfigurations.Contains(configuration))
             throw new ArgumentException(
                 $"Invalid build configuration '{configuration}'. Allowed: {string.Join(", ", AllowedConfigurations)}.",
                 nameof(configuration));
 
-        var safeModuleId = EnsureSafeModuleId(moduleId);
+        var safeModuleId = EnsureSafeModuleId(SourceId);
         var moduleDir = ModulePathGuard.EnsureContainedIn(
-            workspace.ResolveModuleDir(safeModuleId), workspace.ExternalModulesDir);
+            workspace.ResolveModuleDir(safeModuleId), workspace.ExternalPackagesDirectory);
 
         if (!Directory.Exists(moduleDir))
             throw new DirectoryNotFoundException($"Module directory not found: {moduleDir}");
@@ -66,7 +66,7 @@ internal sealed partial class ModuleBuildService(ModuleWorkspaceService workspac
             FileName = "dotnet",
             ArgumentList = { "build", csprojPath, "-c", configuration, "-nologo",
                 "-consoleloggerparameters:NoSummary" },
-            WorkingDirectory = workspace.ExternalModulesDir,
+            WorkingDirectory = workspace.ExternalPackagesDirectory,
             RedirectStandardOutput = true,
             RedirectStandardError = true,
             UseShellExecute = false,
@@ -104,7 +104,7 @@ internal sealed partial class ModuleBuildService(ModuleWorkspaceService workspac
             try { process.Kill(entireProcessTree: true); }
             catch { /* best effort */ }
             throw new TimeoutException(
-                $"dotnet build timed out after {BuildTimeout.TotalSeconds}s for module '{moduleId}'.");
+                $"dotnet build timed out after {BuildTimeout.TotalSeconds}s for module '{SourceId}'.");
         }
 
         var rawOutput = stdout.ToString() + stderr.ToString();
@@ -126,13 +126,13 @@ internal sealed partial class ModuleBuildService(ModuleWorkspaceService workspac
         return new BuildResult(success, errors, warnings, outputDll, rawOutput);
     }
 
-    private static string EnsureSafeModuleId(string moduleId)
+    private static string EnsureSafeModuleId(string SourceId)
     {
-        ArgumentException.ThrowIfNullOrWhiteSpace(moduleId, nameof(moduleId));
-        if (!ModuleIdRegex().IsMatch(moduleId))
+        ArgumentException.ThrowIfNullOrWhiteSpace(SourceId, nameof(SourceId));
+        if (!ModuleIdRegex().IsMatch(SourceId))
             throw new ArgumentException(
-                $"Invalid module ID '{moduleId}'. Must match ^[a-z][a-z0-9_]{{0,39}}$.", nameof(moduleId));
-        return moduleId;
+                $"Invalid module ID '{SourceId}'. Must match ^[a-z][a-z0-9_]{{0,39}}$.", nameof(SourceId));
+        return SourceId;
     }
 
     // ── MSBuild diagnostic parsing ────────────────────────────────

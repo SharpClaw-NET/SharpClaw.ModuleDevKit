@@ -1,5 +1,5 @@
 using System.Text.Json;
-using SharpClaw.Contracts.Modules;
+using SharpClaw.Contracts.Kernel;
 using SharpClaw.Modules.ModuleDev.Services;
 
 namespace SharpClaw.Modules.ModuleDev.Handlers;
@@ -7,9 +7,9 @@ namespace SharpClaw.Modules.ModuleDev.Handlers;
 /// <summary>Runs the ModuleDev CLI through typed action authority.</summary>
 internal sealed class ModuleDevCliHandler(
     IHostActionEntry hostActionEntry,
-    ModuleDevActionGateway gateway) : IModuleCliHandler
+    ModuleDevActionGateway gateway) : ICliHandler
 {
-    public static ModuleCliCommandDescriptor Descriptor { get; } = new(
+    public static CliCommandDescriptor Descriptor { get; } = new(
         "mdk",
         ["module-dev"],
         "Manage module development workspaces and active modules.",
@@ -17,8 +17,8 @@ internal sealed class ModuleDevCliHandler(
         new JsonSchemaReference("sharpclaw.module-dev.cli.result", 1),
         RequiresAdministrator: true);
 
-    public async ValueTask<ModuleCliResult> ExecuteAsync(
-        ModuleCliInvocation invocation,
+    public async ValueTask<CliResult> ExecuteAsync(
+        CliInvocation invocation,
         CancellationToken ct)
     {
         ArgumentNullException.ThrowIfNull(invocation);
@@ -30,9 +30,9 @@ internal sealed class ModuleDevCliHandler(
                 invocation.HostActionContext,
                 action,
                 ct);
-            return new ModuleCliResult(
+            return new CliResult(
                 true,
-                [new ModuleCliOutput("stdout", result.Content)]);
+                [new CliOutput("stdout", result.Content)]);
         }
         catch (OperationCanceledException) when (ct.IsCancellationRequested)
         {
@@ -95,15 +95,15 @@ internal sealed class ModuleDevCliHandler(
         };
     }
 
-    private static ModuleDevAction ModuleAction(ModuleDevOperation operation, string moduleId) =>
-        new(operation, JsonSerializer.SerializeToElement(new { module_id = moduleId }));
+    private static ModuleDevAction ModuleAction(ModuleDevOperation operation, string SourceId) =>
+        new(operation, JsonSerializer.SerializeToElement(new { module_id = SourceId }));
 
     private static ModuleDevAction EmptyAction(ModuleDevOperation operation) =>
         new(operation, JsonSerializer.SerializeToElement(new { }));
 
-    private static ModuleCliResult Failure(string code, string message) =>
+    private static CliResult Failure(string code, string message) =>
         new(
             false,
-            [new ModuleCliOutput("stderr", message)],
+            [new CliOutput("stderr", message)],
             new ExecutionError(code, message));
 }

@@ -1,4 +1,4 @@
-using SharpClaw.Contracts.Modules;
+using SharpClaw.Contracts.Kernel;
 using SharpClaw.Modules.ModuleDev.Services;
 
 namespace SharpClaw.Modules.ModuleDev.Handlers;

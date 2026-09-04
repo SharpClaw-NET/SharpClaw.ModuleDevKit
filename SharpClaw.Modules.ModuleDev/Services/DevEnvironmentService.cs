@@ -3,7 +3,7 @@ using System.Reflection;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 
-using SharpClaw.Contracts.Modules;
+using SharpClaw.Contracts.Kernel;
 using SharpClaw.ModuleSDK.HostOperations;
 
 namespace SharpClaw.Modules.ModuleDev.Services;
@@ -22,7 +22,7 @@ internal sealed class DevEnvironmentService
         string ContractsAssemblyPath,
         string HostVersion,
         IReadOnlyList<RegisteredModuleInfo> RegisteredModules,
-        string ExternalModulesDir);
+        string ExternalPackagesDirectory);
 
     internal sealed record RegisteredModuleInfo(
         string Id,
@@ -52,7 +52,7 @@ internal sealed class DevEnvironmentService
         var runtimes = ParseLines(await runtimesTask);
         var tools = ParseLines(await toolsTask);
 
-        var contractsAssembly = typeof(ISharpClawModule).Assembly;
+        var contractsAssembly = typeof(SharpClawActionKey).Assembly;
         var contractsVersion = contractsAssembly.GetName().Version?.ToString() ?? "unknown";
         var contractsPath = contractsAssembly.Location;
 
@@ -60,7 +60,7 @@ internal sealed class DevEnvironmentService
         var hostVersion = hostAssembly?.GetName().Version?.ToString() ?? "unknown";
 
         var modules = host.Modules.Select(module => new RegisteredModuleInfo(
-            module.State.ModuleId,
+            module.State.SourceId,
             module.State.ToolPrefix,
             module.ExportedContractNames)).ToArray();
 
@@ -72,7 +72,7 @@ internal sealed class DevEnvironmentService
             ContractsAssemblyPath: contractsPath,
             HostVersion: hostVersion,
             RegisteredModules: modules,
-            ExternalModulesDir: host.ExternalModulesDirectory);
+            ExternalPackagesDirectory: host.ExternalModulesDirectory);
     }
 
     /// <summary>

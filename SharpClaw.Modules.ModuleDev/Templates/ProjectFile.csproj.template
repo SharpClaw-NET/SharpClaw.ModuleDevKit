@@ -17,7 +17,7 @@
   </ItemGroup>
 
   <ItemGroup>
-    <Content Include="module.json" CopyToOutputDirectory="PreserveNewest" Pack="false" />
+    <Content Include="package.json" CopyToOutputDirectory="PreserveNewest" Pack="false" />
   </ItemGroup>
 
 </Project>

@@ -17,7 +17,7 @@ internal sealed partial class ModuleScaffoldService(ModuleWorkspaceService works
     /// Scaffold specification provided by the agent.
     /// </summary>
     internal sealed record ScaffoldSpec(
-        string ModuleId,
+        string SourceId,
         string DisplayName,
         string ToolPrefix,
         string? Description = null,
@@ -46,7 +46,7 @@ internal sealed partial class ModuleScaffoldService(ModuleWorkspaceService works
     {
         ValidateSpec(spec, host);
 
-        var moduleDir = workspace.ResolveModuleDir(spec.ModuleId);
+        var moduleDir = workspace.ResolveModuleDir(spec.SourceId);
         Directory.CreateDirectory(moduleDir);
 
         return await ScaffoldDotNetAsync(spec, moduleDir, ct);
@@ -56,39 +56,39 @@ internal sealed partial class ModuleScaffoldService(ModuleWorkspaceService works
         ScaffoldSpec spec, string moduleDir, CancellationToken ct)
     {
         var files = new List<string>();
-        var assemblyName = ToPascalCase(spec.ModuleId);
+        var assemblyName = ToPascalCase(spec.SourceId);
 
         // 1. Generate .csproj
         var csprojContent = LoadTemplate("ProjectFile.csproj.template")
             .Replace("{{ASSEMBLY_NAME}}", assemblyName)
             .Replace("{{DESCRIPTION}}", spec.Description ?? $"{spec.DisplayName} SharpClaw module.");
 
-        var csprojName = ToPascalCase(spec.ModuleId) + ".csproj";
-        await workspace.WriteFileAsync(spec.ModuleId, csprojName, csprojContent, ct);
+        var csprojName = ToPascalCase(spec.SourceId) + ".csproj";
+        await workspace.WriteFileAsync(spec.SourceId, csprojName, csprojContent, ct);
         files.Add(csprojName);
 
         // 2. Generate module class
-        var className = ToPascalCase(spec.ModuleId) + "Module";
-        var ns = ToPascalCase(spec.ModuleId);
+        var className = ToPascalCase(spec.SourceId) + "Module";
+        var ns = ToPascalCase(spec.SourceId);
         var toolStubs = BuildToolStubs(spec.Tools);
         var toolDispatch = BuildToolDispatch(spec.Tools);
 
         var moduleContent = LoadTemplate("ModuleClass.cs.template")
             .Replace("{{NAMESPACE}}", ns)
             .Replace("{{CLASS_NAME}}", className)
-            .Replace("{{MODULE_ID}}", spec.ModuleId)
+            .Replace("{{MODULE_ID}}", spec.SourceId)
             .Replace("{{DISPLAY_NAME}}", spec.DisplayName)
             .Replace("{{TOOL_PREFIX}}", spec.ToolPrefix)
             .Replace("{{TOOL_STUBS}}", toolStubs)
             .Replace("{{TOOL_DISPATCH}}", toolDispatch);
 
         var moduleFileName = className + ".cs";
-        await workspace.WriteFileAsync(spec.ModuleId, moduleFileName, moduleContent, ct);
+        await workspace.WriteFileAsync(spec.SourceId, moduleFileName, moduleContent, ct);
         files.Add(moduleFileName);
 
-        // 3. Generate module.json
+        // 3. Generate package.json
         var manifestContent = LoadTemplate("Manifest.json.template")
-            .Replace("{{MODULE_ID}}", spec.ModuleId)
+            .Replace("{{MODULE_ID}}", spec.SourceId)
             .Replace("{{DISPLAY_NAME}}", spec.DisplayName)
             .Replace("{{TOOL_PREFIX}}", spec.ToolPrefix)
             .Replace("{{NAMESPACE}}", ns)
@@ -96,8 +96,8 @@ internal sealed partial class ModuleScaffoldService(ModuleWorkspaceService works
             .Replace("{{ASSEMBLY_NAME}}", assemblyName)
             .Replace("{{DESCRIPTION}}", spec.Description ?? "");
 
-        await workspace.WriteFileAsync(spec.ModuleId, "module.json", manifestContent, ct);
-        files.Add("module.json");
+        await workspace.WriteFileAsync(spec.SourceId, "package.json", manifestContent, ct);
+        files.Add("package.json");
 
         return new ScaffoldResult(moduleDir, files);
     }
@@ -106,9 +106,9 @@ internal sealed partial class ModuleScaffoldService(ModuleWorkspaceService works
 
     private static void ValidateSpec(ScaffoldSpec spec, HostModuleListResult host)
     {
-        if (!ModuleIdRegex().IsMatch(spec.ModuleId))
+        if (!ModuleIdRegex().IsMatch(spec.SourceId))
             throw new ArgumentException(
-                $"Invalid module ID '{spec.ModuleId}'. Must match ^[a-z][a-z0-9_]{{0,39}}$.");
+                $"Invalid module ID '{spec.SourceId}'. Must match ^[a-z][a-z0-9_]{{0,39}}$.");
 
         if (!ToolPrefixRegex().IsMatch(spec.ToolPrefix))
             throw new ArgumentException(
@@ -118,9 +118,9 @@ internal sealed partial class ModuleScaffoldService(ModuleWorkspaceService works
             throw new ArgumentException("Display name is required.");
 
         if (host.Modules.Any(module =>
-            string.Equals(module.State.ModuleId, spec.ModuleId, StringComparison.Ordinal)))
+            string.Equals(module.State.SourceId, spec.SourceId, StringComparison.Ordinal)))
             throw new InvalidOperationException(
-                $"Module ID '{spec.ModuleId}' is already registered.");
+                $"Module ID '{spec.SourceId}' is already registered.");
 
         if (host.Modules.Any(module =>
             string.Equals(module.State.ToolPrefix, spec.ToolPrefix, StringComparison.Ordinal)))

@@ -1,5 +1,5 @@
 using System.Text.Json;
-using SharpClaw.Contracts.Modules;
+using SharpClaw.Contracts.Kernel;
 using SharpClaw.ModuleSDK;
 
 namespace SharpClaw.Modules.ModuleDev;
@@ -40,7 +40,7 @@ public sealed record ModuleDevActionResult(string Content);
 /// <summary>Defines the public ModuleDev actions and Tools.</summary>
 public static class ModuleDevContracts
 {
-    public const string ModuleId = "sharpclaw_module_dev";
+    public const string SourceId = "sharpclaw_module_dev";
 
     public static Guid ReadTerminalId { get; } =
         new("f2f128d4-371a-4c88-a296-c16f60e9a101");

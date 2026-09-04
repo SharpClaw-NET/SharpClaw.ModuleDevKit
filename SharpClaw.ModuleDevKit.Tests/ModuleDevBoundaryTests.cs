@@ -1,7 +1,7 @@
 using System.Text;
 using System.Text.Json;
 using NUnit.Framework;
-using SharpClaw.Contracts.Modules;
+using SharpClaw.Contracts.Kernel;
 using SharpClaw.ModuleSDK;
 using SharpClaw.ModuleSDK.HostOperations;
 using SharpClaw.Modules.AgentOrchestration.Contracts;
@@ -48,7 +48,7 @@ public sealed class ModuleDevBoundaryTests
 
         Assert.Multiple(() =>
         {
-            Assert.That(graph.Identity.Id, Is.EqualTo(ModuleDevContracts.ModuleId));
+            Assert.That(graph.Identity.Id, Is.EqualTo(ModuleDevContracts.SourceId));
             Assert.That(graph.Actions.Select(action => action.Descriptor.Key.Value), Is.EqualTo(new[]
             {
                 "module-dev.read",
@@ -122,7 +122,7 @@ public sealed class ModuleDevBoundaryTests
         cancellation.Cancel();
 
         await module.StartAsync(
-            new ModuleStartContext(module.Identity, "test", "contract", new ExtensionFeatureSet([])),
+            new ServiceStartContext("test", "contract", new ExtensionFeatureSet([])),
             cancellation.Token);
         await module.StopAsync(cancellation.Token);
 
@@ -274,7 +274,7 @@ public sealed class ModuleDevBoundaryTests
         var fixture = CreateFixture();
         var invocationId = Guid.NewGuid();
         var result = await fixture.Cli.ExecuteAsync(
-            new ModuleCliInvocation(
+            new CliInvocation(
                 invocationId,
                 "mdk",
                 ["load", "sample_module"],
@@ -308,7 +308,7 @@ public sealed class ModuleDevBoundaryTests
         {
             RouteValues = new Dictionary<string, string[]>
             {
-                ["moduleId"] = ["sample_module"],
+                ["SourceId"] = ["sample_module"],
                 ["path"] = ["Sample.cs"],
             },
         };
@@ -367,16 +367,16 @@ public sealed class ModuleDevBoundaryTests
         var directory = Path.Combine(_externalModulesDirectory, "sample_module");
         var source = await File.ReadAllTextAsync(Path.Combine(directory, "SampleModuleModule.cs"));
         var project = await File.ReadAllTextAsync(Path.Combine(directory, "SampleModule.csproj"));
-        var manifest = await File.ReadAllTextAsync(Path.Combine(directory, "module.json"));
+        var manifest = await File.ReadAllTextAsync(Path.Combine(directory, "package.json"));
         Assert.Multiple(() =>
         {
             Assert.That(source, Does.Contain("ISharpClawModule"));
             Assert.That(source, Does.Contain("IToolHandler"));
-            Assert.That(source, Does.Not.Contain("ISharpClawCoreModule"));
+            Assert.That(source, Does.Not.Contain("ISharpClawCoreRegistration"));
             Assert.That(project, Does.Contain("SharpClaw.ModuleSDK"));
             Assert.That(project, Does.Contain("[0.5.0-beta.40]"));
             Assert.That(manifest, Does.Contain("\"hostMode\": \"sidecar\""));
-            Assert.That(manifest, Does.Contain("\"moduleType\": \"SampleModule.SampleModuleModule\""));
+            Assert.That(manifest, Does.Contain("\"entryType\": \"SampleModule.SampleModuleModule\""));
         });
     }
 
@@ -471,14 +471,14 @@ public sealed class ModuleDevBoundaryTests
             TestHost.CreateHostContext(HostActionEntryIngress.Tool, toolName, invocationId));
     }
 
-    private static ModuleManifest LoadManifest()
+    private static PackageManifest LoadManifest()
     {
         var path = Path.Combine(
             TestContext.CurrentContext.TestDirectory,
-            "modules",
-            ModuleDevContracts.ModuleId,
-            "module.json");
-        return JsonSerializer.Deserialize<ModuleManifest>(
+            "contributions",
+            ModuleDevContracts.SourceId,
+            "package.json");
+        return JsonSerializer.Deserialize<PackageManifest>(
             File.ReadAllText(path),
             new JsonSerializerOptions(JsonSerializerDefaults.Web))
             ?? throw new InvalidOperationException("The module manifest could not be loaded.");
@@ -523,7 +523,7 @@ public sealed class ModuleDevBoundaryTests
                 request.Context.Attempt,
                 request.Context.Deadline,
                 request.Descriptor.Key,
-                ModuleDevContracts.ModuleId,
+                ModuleDevContracts.SourceId,
                 request.Context.Caller,
                 request.Action,
                 request.Context.Features,
@@ -552,7 +552,7 @@ public sealed class ModuleDevBoundaryTests
                 "host.module.list" => new HostModuleListResult(
                     ExternalModulesDirectory,
                     [new HostModuleSummary(
-                        State(ModuleDevContracts.ModuleId, "mdk"),
+                        State(ModuleDevContracts.SourceId, "mdk"),
                         ["module-dev.contract"])]),
                 "host.module.lifecycle" => Lifecycle((HostModuleLifecycleAction)(object)request.Action!),
                 "host.tool.invoke" => ToolInvocationOutcome.Completed(ToolResult.Text("tool-result")),
@@ -577,7 +577,7 @@ public sealed class ModuleDevBoundaryTests
                 1,
                 DateTimeOffset.UtcNow.AddMinutes(1),
                 ModuleDevContracts.ReadDescriptor.Key,
-                ModuleDevContracts.ModuleId,
+                ModuleDevContracts.SourceId,
                 Principal,
                 action,
                 new ExtensionFeatureSet([]),
@@ -626,15 +626,15 @@ public sealed class ModuleDevBoundaryTests
         private static HostModuleLifecycleResult Lifecycle(HostModuleLifecycleAction action) =>
             new(
                 action.Operation,
-                action.ModuleId,
+                action.SourceId,
                 action.Operation == HostModuleLifecycleOperation.Unload
                     ? null
-                    : State(action.ModuleId, "ext"));
+                    : State(action.SourceId, "ext"));
 
-        private static ModuleStateResponse State(string moduleId, string prefix) =>
+        private static RegistrationStateResponse State(string SourceId, string prefix) =>
             new(
-                moduleId,
-                moduleId,
+                SourceId,
+                SourceId,
                 prefix,
                 true,
                 "0.1.0-beta",

@@ -10,7 +10,7 @@ public sealed class ModulePathGuardTests
     public void EnsureContainedIn_ReturnsCanonicalPath_WhenPathStaysUnderParent()
     {
         var parent = CreateTempDirectory();
-        var nested = Path.Combine(parent, "module", "module.json");
+        var nested = Path.Combine(parent, "module", "package.json");
 
         var actual = ModulePathGuard.EnsureContainedIn(nested, parent);
 
@@ -32,7 +32,7 @@ public sealed class ModulePathGuardTests
     {
         var root = CreateTempDirectory();
         var parent = Path.Combine(root, "external-modules");
-        var sibling = Path.Combine(root, "external-modules2", "module.json");
+        var sibling = Path.Combine(root, "external-modules2", "package.json");
 
         Directory.CreateDirectory(parent);
 
@@ -41,7 +41,7 @@ public sealed class ModulePathGuardTests
     }
 
     [TestCase("Module.cs")]
-    [TestCase("module.json")]
+    [TestCase("package.json")]
     public void EnsureFileName_ReturnsSimpleFileNames(string fileName)
     {
         Assert.That(ModulePathGuard.EnsureFileName(fileName), Is.EqualTo(fileName));
@@ -50,8 +50,8 @@ public sealed class ModulePathGuardTests
     [TestCase("")]
     [TestCase("..")]
     [TestCase("module..json")]
-    [TestCase("nested/module.json")]
-    [TestCase(@"nested\module.json")]
+    [TestCase("nested/package.json")]
+    [TestCase(@"nested\package.json")]
     public void EnsureFileName_RejectsTraversalAndPathSegments(string fileName)
     {
         Assert.Throws<ArgumentException>(() => ModulePathGuard.EnsureFileName(fileName));

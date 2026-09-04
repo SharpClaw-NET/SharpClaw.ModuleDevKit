@@ -6,7 +6,7 @@
   "runtime": "dotnet",
   "hostMode": "sidecar",
   "entryAssembly": "SharpClaw.Modules.ModuleDev.dll",
-  "moduleType": "SharpClaw.Modules.ModuleDev.ModuleDevModule",
+  "entryType": "SharpClaw.Modules.ModuleDev.ModuleDevModule",
   "minHostVersion": "0.1.0-beta",
   "author": "mkn8rn",
   "description": "Autonomous module authoring, building, hot-loading, and development introspection tools.",
@@ -16,7 +16,7 @@
   "requires": [
     {
       "contractName": "window_management",
-      "serviceType": "SharpClaw.Contracts.Modules.Contracts.IWindowManager",
+      "serviceType": "SharpClaw.Contracts.Kernel.Contracts.IWindowManager",
       "optional": true
     }
   ]

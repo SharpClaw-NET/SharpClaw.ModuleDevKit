@@ -1,32 +1,32 @@
 using System.Text.Json;
-using SharpClaw.Contracts.Modules;
+using SharpClaw.Contracts.Kernel;
 using SharpClaw.Modules.ModuleDev.Services;
 
 namespace SharpClaw.Modules.ModuleDev.Handlers;
 
 /// <summary>Runs all ModuleDev HTTP routes through typed action authority.</summary>
 internal sealed class ModuleDevEndpointHandler(ModuleDevActionGateway gateway)
-    : IModuleHttpEndpointHandler
+    : IHttpEndpointHandler
 {
     private static IReadOnlyList<RouteDefinition> Definitions { get; } =
     [
-        Route("module-dev.scaffold", "/modules/dev/scaffold", "POST", ModuleDevOperation.ScaffoldModule),
-        Route("module-dev.files.list", "/modules/dev/{moduleId}/files", "GET", ModuleDevOperation.ListFiles),
-        Route("module-dev.files.read", "/modules/dev/{moduleId}/files/{**path}", "GET", ModuleDevOperation.ReadFile),
-        Route("module-dev.files.write", "/modules/dev/{moduleId}/files/{**path}", "PUT", ModuleDevOperation.WriteFile),
-        Route("module-dev.build", "/modules/dev/{moduleId}/build", "POST", ModuleDevOperation.BuildModule),
-        Route("module-dev.load", "/modules/dev/{moduleId}/load", "POST", ModuleDevOperation.LoadModule),
-        Route("module-dev.unload", "/modules/dev/{moduleId}/load", "DELETE", ModuleDevOperation.UnloadModule),
-        Route("module-dev.reload", "/modules/dev/{moduleId}/reload", "POST", ModuleDevOperation.ReloadModule),
-        Route("module-dev.inspect", "/modules/dev/inspect/{target}", "GET", ModuleDevOperation.InspectProcess),
-        Route("module-dev.com", "/modules/dev/com/{**typelibPath}", "GET", ModuleDevOperation.DiscoverComInterfaces),
-        Route("module-dev.environment", "/modules/dev/env", "GET", ModuleDevOperation.EnumerateDevEnvironment),
+        Route("module-dev.scaffold", "/contributions/dev/scaffold", "POST", ModuleDevOperation.ScaffoldModule),
+        Route("module-dev.files.list", "/contributions/dev/{SourceId}/files", "GET", ModuleDevOperation.ListFiles),
+        Route("module-dev.files.read", "/contributions/dev/{SourceId}/files/{**path}", "GET", ModuleDevOperation.ReadFile),
+        Route("module-dev.files.write", "/contributions/dev/{SourceId}/files/{**path}", "PUT", ModuleDevOperation.WriteFile),
+        Route("module-dev.build", "/contributions/dev/{SourceId}/build", "POST", ModuleDevOperation.BuildModule),
+        Route("module-dev.load", "/contributions/dev/{SourceId}/load", "POST", ModuleDevOperation.LoadModule),
+        Route("module-dev.unload", "/contributions/dev/{SourceId}/load", "DELETE", ModuleDevOperation.UnloadModule),
+        Route("module-dev.reload", "/contributions/dev/{SourceId}/reload", "POST", ModuleDevOperation.ReloadModule),
+        Route("module-dev.inspect", "/contributions/dev/inspect/{target}", "GET", ModuleDevOperation.InspectProcess),
+        Route("module-dev.com", "/contributions/dev/com/{**typelibPath}", "GET", ModuleDevOperation.DiscoverComInterfaces),
+        Route("module-dev.environment", "/contributions/dev/env", "GET", ModuleDevOperation.EnumerateDevEnvironment),
     ];
 
-    public static IReadOnlyList<ModuleEndpointRouteDescriptor> Routes { get; } =
+    public static IReadOnlyList<EndpointRouteDescriptor> Routes { get; } =
         Definitions.Select(definition => definition.Descriptor).ToArray();
 
-    public async ValueTask<ModuleHttpEndpointResponse> InvokeAsync(
+    public async ValueTask<HttpEndpointResponse> InvokeAsync(
         HostEndpointRouteRequest request,
         IHostActionEntry hostActionEntry,
         CancellationToken ct)
@@ -45,7 +45,7 @@ internal sealed class ModuleDevEndpointHandler(ModuleDevActionGateway gateway)
                 request.Invocation.HostActionContext,
                 new ModuleDevAction(route.Operation, parameters),
                 ct);
-            return ModuleHttpEndpointResponse.Json(200, ParseResult(result.Content));
+            return HttpEndpointResponse.Json(200, ParseResult(result.Content));
         }
         catch (OperationCanceledException) when (ct.IsCancellationRequested)
         {
@@ -77,38 +77,38 @@ internal sealed class ModuleDevEndpointHandler(ModuleDevActionGateway gateway)
         ModuleDevOperation operation,
         HostEndpointRouteRequest request)
     {
-        var moduleId = RouteValue(request, "moduleId");
+        var SourceId = RouteValue(request, "SourceId");
         var path = RouteValue(request, "path");
         return operation switch
         {
             ModuleDevOperation.ScaffoldModule => ReadBodyObject(request.Body),
             ModuleDevOperation.ListFiles => JsonSerializer.SerializeToElement(new
             {
-                module_id = moduleId,
+                module_id = SourceId,
                 include_pattern = QueryValue(request, "pattern"),
             }),
             ModuleDevOperation.ReadFile => JsonSerializer.SerializeToElement(new
             {
-                module_id = moduleId,
+                module_id = SourceId,
                 relative_path = path,
                 max_lines = QueryInt(request, "maxLines"),
             }),
             ModuleDevOperation.WriteFile => JsonSerializer.SerializeToElement(new
             {
-                module_id = moduleId,
+                module_id = SourceId,
                 relative_path = path,
                 content = RequiredBodyString(request.Body, "content"),
             }),
             ModuleDevOperation.BuildModule => JsonSerializer.SerializeToElement(new
             {
-                module_id = moduleId,
+                module_id = SourceId,
                 configuration = OptionalBodyString(request.Body, "configuration") ?? "Debug",
             }),
             ModuleDevOperation.LoadModule or
             ModuleDevOperation.UnloadModule or
             ModuleDevOperation.ReloadModule => JsonSerializer.SerializeToElement(new
             {
-                module_id = moduleId,
+                module_id = SourceId,
             }),
             ModuleDevOperation.InspectProcess => JsonSerializer.SerializeToElement(new
             {
@@ -202,15 +202,15 @@ internal sealed class ModuleDevEndpointHandler(ModuleDevActionGateway gateway)
         string method,
         ModuleDevOperation operation) =>
         new(
-            new ModuleEndpointRouteDescriptor(id, path, method, HostEndpointTransport.Http),
+            new EndpointRouteDescriptor(id, path, method, HostEndpointTransport.Http),
             operation);
 
-    private static ModuleHttpEndpointResponse Error(int statusCode, string code) =>
-        ModuleHttpEndpointResponse.Json(
+    private static HttpEndpointResponse Error(int statusCode, string code) =>
+        HttpEndpointResponse.Json(
             statusCode,
             JsonSerializer.SerializeToElement(new { error = code }));
 
     private sealed record RouteDefinition(
-        ModuleEndpointRouteDescriptor Descriptor,
+        EndpointRouteDescriptor Descriptor,
         ModuleDevOperation Operation);
 }

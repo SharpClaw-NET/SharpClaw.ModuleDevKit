@@ -1,6 +1,6 @@
 using System.Text.Json;
 using System.Text.Json.Serialization;
-using SharpClaw.Contracts.Modules;
+using SharpClaw.Contracts.Kernel;
 using SharpClaw.ModuleSDK;
 using SharpClaw.ModuleSDK.HostOperations;
 using SharpClaw.Modules.AgentOrchestration.Contracts;
@@ -298,8 +298,7 @@ internal sealed class ModuleDevOperations(
         sdkReference.GetReference("all") + Environment.NewLine + """
 
             SharpClaw modules implement ISharpClawModule.
-            A module registers services, contracts, storage, actions, events, hooks, Tools, and chat contributions through ISharpClawModuleBuilder.
-            Application modules register neutral CLI and endpoint handlers through ISharpClawApplicationBuilder.
+            A module registers services, contracts, storage, actions, events, hooks, tools, CLI commands, and endpoints through IServiceCollection.
             External modules use a sidecar manifest and authenticated host action entries.
             """;
 
@@ -310,7 +309,7 @@ internal sealed class ModuleDevOperations(
         var modules = (await GetHostModulesAsync(hostActionEntry, ct)).Modules;
         return Serialize(modules.Select(module => new
         {
-            module.State.ModuleId,
+            module.State.SourceId,
             module.State.DisplayName,
             module.State.ToolPrefix,
             module.State.Enabled,
@@ -326,7 +325,7 @@ internal sealed class ModuleDevOperations(
         CancellationToken ct)
     {
         BindWorkspace(await GetHostModulesAsync(hostActionEntry, ct));
-        var root = workspace.ExternalModulesDir;
+        var root = workspace.ExternalPackagesDirectory;
         return Serialize(Directory.Exists(root)
             ? Directory.GetDirectories(root)
                 .Select(Path.GetFileName)
@@ -345,7 +344,7 @@ internal sealed class ModuleDevOperations(
         RejectRuntimeRequest(parameters, "apply_module_files");
         var host = await GetHostModulesAsync(hostActionEntry, ct);
         BindWorkspace(host);
-        var moduleId = RequiredString(parameters, "module_id");
+        var SourceId = RequiredString(parameters, "module_id");
         var steeringParameters = parameters.TryGetProperty("conversation", out var conversation) &&
             conversation.ValueKind == JsonValueKind.Object
                 ? conversation
@@ -356,11 +355,11 @@ internal sealed class ModuleDevOperations(
         {
             var files = ReadFiles(parameters);
             foreach (var file in files)
-                workspace.ValidateFileForWrite(moduleId, file.RelativePath, file.Content);
+                workspace.ValidateFileForWrite(SourceId, file.RelativePath, file.Content);
             foreach (var file in files)
             {
                 var result = await workspace.WriteFileAsync(
-                    moduleId,
+                    SourceId,
                     file.RelativePath,
                     file.Content,
                     ct);
@@ -376,7 +375,7 @@ internal sealed class ModuleDevOperations(
             if (OptionalBool(parameters, "build") ?? true)
             {
                 buildResult = await build.BuildAsync(
-                    moduleId,
+                    SourceId,
                     OptionalString(parameters, "configuration") ?? "Debug",
                     ct);
                 if (!buildResult.Success)
@@ -385,13 +384,13 @@ internal sealed class ModuleDevOperations(
                         hostActionEntry,
                         steeringParameters,
                         "module_build",
-                        $"Module '{moduleId}' build failed.",
+                        $"Module '{SourceId}' build failed.",
                         FormatBuildDiagnostics(buildResult),
                         ct);
                     return Serialize(new
                     {
                         success = false,
-                        module_id = moduleId,
+                        module_id = SourceId,
                         runtime = ModuleScaffoldService.DotNetRuntime,
                         files = written,
                         build = buildResult,
@@ -404,13 +403,13 @@ internal sealed class ModuleDevOperations(
             if (OptionalBool(parameters, "load") ?? true)
             {
                 var operation = host.Modules.Any(module =>
-                    string.Equals(module.State.ModuleId, moduleId, StringComparison.Ordinal))
+                    string.Equals(module.State.SourceId, SourceId, StringComparison.Ordinal))
                         ? HostModuleLifecycleOperation.Reload
                         : HostModuleLifecycleOperation.Load;
                 lifecycle = await InvokeCrossSidecarAsync(
                     hostActionEntry,
                     HostOperationActionDescriptors.ModuleLifecycle,
-                    new HostModuleLifecycleAction(operation, moduleId),
+                    new HostModuleLifecycleAction(operation, SourceId),
                     ct);
             }
 
@@ -421,8 +420,8 @@ internal sealed class ModuleDevOperations(
                 ct);
             var succeeded = tests.All(test => test.Success);
             var summary = succeeded
-                ? $"Module '{moduleId}' workflow completed."
-                : $"Module '{moduleId}' workflow completed with failed Tool checks.";
+                ? $"Module '{SourceId}' workflow completed."
+                : $"Module '{SourceId}' workflow completed with failed Tool checks.";
             var steeringResult = await RecordWorkflowSteeringAsync(
                 hostActionEntry,
                 steeringParameters,
@@ -433,7 +432,7 @@ internal sealed class ModuleDevOperations(
             return Serialize(new
             {
                 success = succeeded,
-                module_id = moduleId,
+                module_id = SourceId,
                 runtime = ModuleScaffoldService.DotNetRuntime,
                 files = written,
                 build = buildResult,
@@ -448,13 +447,13 @@ internal sealed class ModuleDevOperations(
                 hostActionEntry,
                 steeringParameters,
                 "module_workflow_error",
-                $"Module '{moduleId}' workflow failed before completion.",
+                $"Module '{SourceId}' workflow failed before completion.",
                 Truncate(exception.ToString()),
                 ct);
             return Serialize(new
             {
                 success = false,
-                module_id = moduleId,
+                module_id = SourceId,
                 files = written,
                 error = exception.Message,
                 steering,

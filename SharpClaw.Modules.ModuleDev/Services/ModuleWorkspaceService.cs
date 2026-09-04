@@ -2,7 +2,7 @@ using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 
-using SharpClaw.Contracts.Modules;
+using SharpClaw.Contracts.Kernel;
 
 namespace SharpClaw.Modules.ModuleDev.Services;
 
@@ -32,7 +32,7 @@ internal sealed class ModuleWorkspaceService
     private readonly object _rootGate = new();
     private string? _externalModulesDir;
 
-    public string ExternalModulesDir => _externalModulesDir
+    public string ExternalPackagesDirectory => _externalModulesDir
         ?? throw new InvalidOperationException(
             "The host has not supplied the external module directory.");
 
@@ -65,12 +65,12 @@ internal sealed class ModuleWorkspaceService
     /// <summary>
     /// Resolves and validates a module workspace root directory.
     /// </summary>
-    public string ResolveModuleDir(string moduleId)
+    public string ResolveModuleDir(string SourceId)
     {
-        ValidateModuleId(moduleId);
+        ValidateModuleId(SourceId);
 
-        var root = ExternalModulesDir;
-        var moduleDir = Path.GetFullPath(Path.Combine(root, moduleId));
+        var root = ExternalPackagesDirectory;
+        var moduleDir = Path.GetFullPath(Path.Combine(root, SourceId));
         ModulePathGuard.EnsureContainedIn(moduleDir, root);
 
         return moduleDir;
@@ -80,12 +80,12 @@ internal sealed class ModuleWorkspaceService
     /// Resolves a file path inside a module workspace.
     /// Rejects traversal, absolute paths, null bytes, and reserved names.
     /// </summary>
-    public string ResolveFilePath(string moduleId, string relativePath)
+    public string ResolveFilePath(string SourceId, string relativePath)
     {
-        ValidateModuleId(moduleId);
+        ValidateModuleId(SourceId);
         ValidateRelativePath(relativePath);
 
-        var moduleDir = ResolveModuleDir(moduleId);
+        var moduleDir = ResolveModuleDir(SourceId);
         var fullPath = Path.GetFullPath(Path.Combine(moduleDir, relativePath));
 
         if (!fullPath.StartsWith(moduleDir + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase)
@@ -102,9 +102,9 @@ internal sealed class ModuleWorkspaceService
     /// Writes a file to the module workspace. Creates intermediate directories.
     /// </summary>
     public async Task<(string Path, long BytesWritten)> WriteFileAsync(
-        string moduleId, string relativePath, string content, CancellationToken ct = default)
+        string SourceId, string relativePath, string content, CancellationToken ct = default)
     {
-        var fullPath = ValidateFileForWrite(moduleId, relativePath, content);
+        var fullPath = ValidateFileForWrite(SourceId, relativePath, content);
 
         var dir = Path.GetDirectoryName(fullPath)!;
         Directory.CreateDirectory(dir);
@@ -118,14 +118,14 @@ internal sealed class ModuleWorkspaceService
     /// <summary>
     /// Validates a file path and content without changing the workspace.
     /// </summary>
-    public string ValidateFileForWrite(string moduleId, string relativePath, string content)
+    public string ValidateFileForWrite(string SourceId, string relativePath, string content)
     {
         ArgumentNullException.ThrowIfNull(content);
 
-        var fullPath = ResolveFilePath(moduleId, relativePath);
+        var fullPath = ResolveFilePath(SourceId, relativePath);
         ValidateExtension(fullPath);
         ValidateContent(relativePath, content);
-        ModulePathGuard.EnsureContainedIn(fullPath, ExternalModulesDir);
+        ModulePathGuard.EnsureContainedIn(fullPath, ExternalPackagesDirectory);
 
         return fullPath;
     }
@@ -134,10 +134,10 @@ internal sealed class ModuleWorkspaceService
     /// Reads a file from the module workspace, optionally truncated.
     /// </summary>
     public async Task<string> ReadFileAsync(
-        string moduleId, string relativePath, int maxLines = 500, CancellationToken ct = default)
+        string SourceId, string relativePath, int maxLines = 500, CancellationToken ct = default)
     {
-        var fullPath = ResolveFilePath(moduleId, relativePath);
-        ModulePathGuard.EnsureContainedIn(fullPath, ExternalModulesDir);
+        var fullPath = ResolveFilePath(SourceId, relativePath);
+        ModulePathGuard.EnsureContainedIn(fullPath, ExternalPackagesDirectory);
 
         if (!File.Exists(fullPath))
             throw new FileNotFoundException($"File not found: {relativePath}", fullPath);
@@ -155,11 +155,11 @@ internal sealed class ModuleWorkspaceService
     /// <summary>
     /// Lists the file tree of a module workspace, optionally filtered by glob.
     /// </summary>
-    public IReadOnlyList<string> ListFiles(string moduleId, string? includePattern = null)
+    public IReadOnlyList<string> ListFiles(string SourceId, string? includePattern = null)
     {
         var moduleDir = ModulePathGuard.EnsureContainedIn(
-            ResolveModuleDir(moduleId),
-            ExternalModulesDir);
+            ResolveModuleDir(SourceId),
+            ExternalPackagesDirectory);
 
         if (!Directory.Exists(moduleDir))
             return [];
@@ -183,13 +183,13 @@ internal sealed class ModuleWorkspaceService
 
     // ── Validation ────────────────────────────────────────────────
 
-    private static void ValidateModuleId(string moduleId)
+    private static void ValidateModuleId(string SourceId)
     {
-        ArgumentNullException.ThrowIfNull(moduleId);
+        ArgumentNullException.ThrowIfNull(SourceId);
 
-        if (!System.Text.RegularExpressions.Regex.IsMatch(moduleId, @"^[a-z][a-z0-9_]{0,39}$"))
+        if (!System.Text.RegularExpressions.Regex.IsMatch(SourceId, @"^[a-z][a-z0-9_]{0,39}$"))
             throw new ArgumentException(
-                $"Invalid module ID '{moduleId}'. Must match ^[a-z][a-z0-9_]{{0,39}}$.", nameof(moduleId));
+                $"Invalid module ID '{SourceId}'. Must match ^[a-z][a-z0-9_]{{0,39}}$.", nameof(SourceId));
     }
 
     private static void ValidateRelativePath(string relativePath)
@@ -234,13 +234,13 @@ internal sealed class ModuleWorkspaceService
 
     private static void ValidateContent(string relativePath, string content)
     {
-        if (!string.Equals(Path.GetFileName(relativePath), "module.json", StringComparison.OrdinalIgnoreCase))
+        if (!string.Equals(Path.GetFileName(relativePath), "package.json", StringComparison.OrdinalIgnoreCase))
             return;
 
-        ModuleManifest manifest;
+        PackageManifest manifest;
         try
         {
-            manifest = JsonSerializer.Deserialize<ModuleManifest>(content, ManifestJsonOptions)
+            manifest = JsonSerializer.Deserialize<PackageManifest>(content, ManifestJsonOptions)
                 ?? throw new InvalidOperationException(
                     $"Module manifest '{relativePath}' must contain a JSON object.");
         }
@@ -250,7 +250,7 @@ internal sealed class ModuleWorkspaceService
                 $"Module manifest '{relativePath}' is not valid JSON.", exception);
         }
 
-        var runtime = ModuleManifestRuntimeInfo.FromJson(content);
+        var runtime = PackageRuntimeInfo.FromJson(content);
         runtime.EnsureDotNetEntryAssembly(manifest);
 
         var missingField = RequiredManifestFields.FirstOrDefault(field =>
@@ -262,7 +262,7 @@ internal sealed class ModuleWorkspaceService
         }
     }
 
-    private static readonly (string Name, Func<ModuleManifest, string?> Getter)[] RequiredManifestFields =
+    private static readonly (string Name, Func<PackageManifest, string?> Getter)[] RequiredManifestFields =
     [
         ("id", manifest => manifest.Id),
         ("displayName", manifest => manifest.DisplayName),
