@@ -166,7 +166,18 @@ public static class ModuleDevContracts
             "display_name": { "type": "string" },
             "tool_prefix": { "type": "string" },
             "description": { "type": "string" },
-            "tools": { "type": "array", "items": { "type": "object" } }
+            "tools": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "name": { "type": "string" },
+                  "description": { "type": "string" }
+                },
+                "required": ["name"],
+                "additionalProperties": false
+              }
+            }
           },
           "required": ["module_id", "display_name", "tool_prefix"],
           "additionalProperties": false

@@ -1,6 +1,6 @@
-using System.Text.Json;
 using Microsoft.Extensions.DependencyInjection;
-using SharpClaw.Contracts.Modules;
+using SharpClaw.Contracts.Kernel;
+using SharpClaw.ModuleSDK;
 
 namespace {{NAMESPACE}};
 
@@ -11,27 +11,15 @@ public sealed class {{CLASS_NAME}} : ISharpClawModule
         "{{DISPLAY_NAME}}",
         "{{TOOL_PREFIX}}");
 
-    public void Configure(ISharpClawModuleBuilder module)
+    public void ConfigureServices(IServiceCollection services)
     {
-        module.Services.AddSingleton<GeneratedToolHandler>();
-        foreach (var descriptor in GeneratedToolHandler.Descriptors)
-            module.Tools.Add<GeneratedToolHandler>(descriptor);
+{{TOOL_REGISTRATIONS}}
     }
 }
 
-public sealed class GeneratedToolHandler : IToolHandler
+public static class GeneratedTools
 {
-    public static IReadOnlyList<ToolDescriptor> Descriptors { get; } =
-    [
-{{TOOL_STUBS}}
-    ];
-
-    public ValueTask<ToolResult> InvokeAsync(
-        ToolInvocation invocation,
-        CancellationToken ct) =>
-        invocation.ToolName switch
-        {
-{{TOOL_DISPATCH}}
-            _ => throw new NotSupportedException($"Unknown Tool: {invocation.ToolName}"),
-        };
+{{TOOL_DESCRIPTORS}}
 }
+
+{{TOOL_HANDLERS}}

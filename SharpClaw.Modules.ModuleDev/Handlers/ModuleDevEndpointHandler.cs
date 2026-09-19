@@ -77,38 +77,36 @@ internal sealed class ModuleDevEndpointHandler(ModuleDevActionGateway gateway)
         ModuleDevOperation operation,
         HostEndpointRouteRequest request)
     {
-        var SourceId = RouteValue(request, "SourceId");
-        var path = RouteValue(request, "path");
         return operation switch
         {
             ModuleDevOperation.ScaffoldModule => ReadBodyObject(request.Body),
             ModuleDevOperation.ListFiles => JsonSerializer.SerializeToElement(new
             {
-                module_id = SourceId,
+                module_id = RouteValue(request, "SourceId"),
                 include_pattern = QueryValue(request, "pattern"),
             }),
             ModuleDevOperation.ReadFile => JsonSerializer.SerializeToElement(new
             {
-                module_id = SourceId,
-                relative_path = path,
+                module_id = RouteValue(request, "SourceId"),
+                relative_path = RouteValue(request, "path"),
                 max_lines = QueryInt(request, "maxLines"),
             }),
             ModuleDevOperation.WriteFile => JsonSerializer.SerializeToElement(new
             {
-                module_id = SourceId,
-                relative_path = path,
+                module_id = RouteValue(request, "SourceId"),
+                relative_path = RouteValue(request, "path"),
                 content = RequiredBodyString(request.Body, "content"),
             }),
             ModuleDevOperation.BuildModule => JsonSerializer.SerializeToElement(new
             {
-                module_id = SourceId,
+                module_id = RouteValue(request, "SourceId"),
                 configuration = OptionalBodyString(request.Body, "configuration") ?? "Debug",
             }),
             ModuleDevOperation.LoadModule or
             ModuleDevOperation.UnloadModule or
             ModuleDevOperation.ReloadModule => JsonSerializer.SerializeToElement(new
             {
-                module_id = SourceId,
+                module_id = RouteValue(request, "SourceId"),
             }),
             ModuleDevOperation.InspectProcess => JsonSerializer.SerializeToElement(new
             {

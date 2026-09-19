@@ -7,7 +7,6 @@
   "hostMode": "sidecar",
   "entryAssembly": "{{ASSEMBLY_NAME}}.dll",
   "entryType": "{{NAMESPACE}}.{{CLASS_NAME}}",
-  "minHostVersion": "0.1.0-beta",
   "description": "{{DESCRIPTION}}",
   "platforms": null,
   "enabled": true,

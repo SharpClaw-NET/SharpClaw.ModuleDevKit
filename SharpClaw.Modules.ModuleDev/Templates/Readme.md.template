@@ -1,0 +1,11 @@
+# {{DISPLAY_NAME}}
+
+{{DESCRIPTION}}
+
+## Package
+
+This SharpClaw package uses the `{{TOOL_PREFIX}}` Tool prefix. Its entry point is `{{NAMESPACE}}.{{CLASS_NAME}}`.
+
+## Development
+
+Implement each generated `IToolHandler`. Use `dotnet pack` to create the sidecar package.

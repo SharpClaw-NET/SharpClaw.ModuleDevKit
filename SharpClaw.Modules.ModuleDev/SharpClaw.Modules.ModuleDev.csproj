@@ -42,6 +42,7 @@
     <EmbeddedResource Include="Templates\ModuleClass.cs.template" WithCulture="false" />
     <EmbeddedResource Include="Templates\ProjectFile.csproj.template" WithCulture="false" />
     <EmbeddedResource Include="Templates\Manifest.json.template" WithCulture="false" />
+    <EmbeddedResource Include="Templates\Readme.md.template" WithCulture="false" />
   </ItemGroup>
 
   <ItemGroup>

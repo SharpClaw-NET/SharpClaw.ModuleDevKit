@@ -5,19 +5,21 @@
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <CopyLocalLockFileAssemblies>true</CopyLocalLockFileAssemblies>
+    <IsSharpClawModulePackage>true</IsSharpClawModulePackage>
     <IsPackable>true</IsPackable>
     <PackageId>{{ASSEMBLY_NAME}}</PackageId>
     <Version>0.1.0-beta</Version>
     <Description>{{DESCRIPTION}}</Description>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
   </PropertyGroup>
 
   <ItemGroup>
-    <PackageReference Include="SharpClaw.Contracts" Version="[0.5.0-beta.40]" />
-    <PackageReference Include="SharpClaw.ModuleSDK" Version="[0.5.0-beta.22]" />
+    <PackageReference Include="SharpClaw.ModuleSDK" Version="[{{MODULE_SDK_VERSION}}]" />
   </ItemGroup>
 
   <ItemGroup>
     <Content Include="package.json" CopyToOutputDirectory="PreserveNewest" Pack="false" />
+    <None Include="README.md" Pack="true" PackagePath="\" />
   </ItemGroup>
 
 </Project>

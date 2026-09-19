@@ -1,8 +1,6 @@
 using System.Text;
-using System.Text.Json;
-using System.Text.Json.Serialization;
 
-using SharpClaw.Contracts.Kernel;
+using SharpClaw.ModuleSDK;
 
 namespace SharpClaw.Modules.ModuleDev.Services;
 
@@ -22,12 +20,6 @@ internal sealed class ModuleWorkspaceService
         ".yaml",
         ".yml"
     ];
-
-    private static readonly JsonSerializerOptions ManifestJsonOptions =
-        new(JsonSerializerDefaults.Web)
-        {
-            UnmappedMemberHandling = JsonUnmappedMemberHandling.Disallow,
-        };
 
     private readonly object _rootGate = new();
     private string? _externalModulesDir;
@@ -237,38 +229,7 @@ internal sealed class ModuleWorkspaceService
         if (!string.Equals(Path.GetFileName(relativePath), "package.json", StringComparison.OrdinalIgnoreCase))
             return;
 
-        PackageManifest manifest;
-        try
-        {
-            manifest = JsonSerializer.Deserialize<PackageManifest>(content, ManifestJsonOptions)
-                ?? throw new InvalidOperationException(
-                    $"Module manifest '{relativePath}' must contain a JSON object.");
-        }
-        catch (JsonException exception)
-        {
-            throw new InvalidOperationException(
-                $"Module manifest '{relativePath}' is not valid JSON.", exception);
-        }
-
-        var runtime = PackageRuntimeInfo.FromJson(content);
-        runtime.EnsureDotNetEntryAssembly(manifest);
-
-        var missingField = RequiredManifestFields.FirstOrDefault(field =>
-            string.IsNullOrWhiteSpace(field.Getter(manifest)));
-        if (missingField.Name is not null)
-        {
-            throw new InvalidOperationException(
-                $"Module manifest '{relativePath}' is missing required field '{missingField.Name}'.");
-        }
+        var loaded = PackageManifestLoader.Parse(content, relativePath);
+        loaded.Runtime.EnsureDotNetEntryAssembly(loaded.Manifest);
     }
-
-    private static readonly (string Name, Func<PackageManifest, string?> Getter)[] RequiredManifestFields =
-    [
-        ("id", manifest => manifest.Id),
-        ("displayName", manifest => manifest.DisplayName),
-        ("version", manifest => manifest.Version),
-        ("toolPrefix", manifest => manifest.ToolPrefix),
-        ("entryAssembly", manifest => manifest.EntryAssembly),
-        ("minHostVersion", manifest => manifest.MinHostVersion),
-    ];
 }

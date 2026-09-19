@@ -1,9 +1,11 @@
+using System.Reflection;
 using System.Text;
 using System.Text.Json;
 using NUnit.Framework;
 using SharpClaw.Contracts.Kernel;
 using SharpClaw.ModuleSDK;
 using SharpClaw.ModuleSDK.HostOperations;
+using SharpClaw.ModuleSDK.Testing;
 using SharpClaw.Modules.AgentOrchestration.Contracts;
 using SharpClaw.Modules.ModuleDev;
 using SharpClaw.Modules.ModuleDev.Handlers;
@@ -63,6 +65,41 @@ public sealed class ModuleDevBoundaryTests
             Assert.That(
                 discovery.ToolHandlers.All(tool => tool.ParametersSchema.ValueKind == JsonValueKind.Object),
                 Is.True);
+        });
+    }
+
+    [Test]
+    public async Task SharedTestHost_InvokesToolCliAndHttpContributions()
+    {
+        var authority = new TestHost(_externalModulesDirectory);
+        await using var host = new SharpClawModuleTestBuilder()
+            .AddRegistration(new ModuleDevModule(), ManifestPath())
+            .ApproveSensitiveContributions(ModuleDevContracts.SourceId)
+            .UseHostActionEntry(authority)
+            .Build();
+
+        await host.StartAsync();
+        var tool = await host.InvokeToolAsync(
+            "list_loaded_modules",
+            JsonSerializer.SerializeToElement(new { }));
+        var cli = await host.InvokeCliAsync("mdk", ["list"]);
+        var endpoint = await host.InvokeHttpAsync("module-dev.environment");
+        await host.StopAsync();
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(tool.IsError, Is.False);
+            Assert.That(cli.Succeeded, Is.True);
+            Assert.That(endpoint.StatusCode, Is.EqualTo(200));
+            Assert.That(authority.RootCalls, Is.EqualTo(3));
+            Assert.That(
+                authority.CrossSidecarKeys,
+                Is.EqualTo(new[]
+                {
+                    HostOperationActionDescriptors.ModuleList.Key.Value,
+                    HostOperationActionDescriptors.ModuleList.Key.Value,
+                    HostOperationActionDescriptors.ModuleList.Key.Value,
+                }));
         });
     }
 
@@ -368,16 +405,56 @@ public sealed class ModuleDevBoundaryTests
         var source = await File.ReadAllTextAsync(Path.Combine(directory, "SampleModuleModule.cs"));
         var project = await File.ReadAllTextAsync(Path.Combine(directory, "SampleModule.csproj"));
         var manifest = await File.ReadAllTextAsync(Path.Combine(directory, "package.json"));
+        var readme = await File.ReadAllTextAsync(Path.Combine(directory, "README.md"));
+        var moduleSdkVersion = typeof(ISharpClawModule).Assembly
+            .GetCustomAttribute<AssemblyInformationalVersionAttribute>()!
+            .InformationalVersion
+            .Split('+', 2)[0];
         Assert.Multiple(() =>
         {
             Assert.That(source, Does.Contain("ISharpClawModule"));
+            Assert.That(source, Does.Contain("ConfigureServices(IServiceCollection services)"));
+            Assert.That(source, Does.Contain("services.AddTool<EchoTool>(GeneratedTools.Echo)"));
             Assert.That(source, Does.Contain("IToolHandler"));
             Assert.That(source, Does.Not.Contain("ISharpClawCoreRegistration"));
+            Assert.That(source, Does.Not.Contain("ISharpClawModuleBuilder"));
+            Assert.That(source, Does.Not.Contain("SharpClaw.Contracts.Modules"));
+            Assert.That(source, Does.Not.Contain("switch"));
             Assert.That(project, Does.Contain("SharpClaw.ModuleSDK"));
-            Assert.That(project, Does.Contain("[0.5.0-beta.40]"));
+            Assert.That(project, Does.Contain($"[{moduleSdkVersion}]"));
+            Assert.That(project, Does.Contain("<IsSharpClawModulePackage>true</IsSharpClawModulePackage>"));
+            Assert.That(project, Does.Contain("<PackageReadmeFile>README.md</PackageReadmeFile>"));
+            Assert.That(project, Does.Not.Contain("SharpClaw.Contracts"));
             Assert.That(manifest, Does.Contain("\"hostMode\": \"sidecar\""));
             Assert.That(manifest, Does.Contain("\"entryType\": \"SampleModule.SampleModuleModule\""));
+            Assert.That(manifest, Does.Not.Contain("minHostVersion"));
+            Assert.That(readme, Does.Contain("# Sample Module"));
+            Assert.That(readme, Does.Contain("`sm` Tool prefix"));
         });
+    }
+
+    [Test]
+    public void Scaffold_RejectsToolNamesThatGenerateTheSameHandlerType()
+    {
+        var fixture = CreateFixture();
+
+        Assert.ThrowsAsync<ArgumentException>(async () =>
+            await fixture.Tool.InvokeAsync(
+                ToolInvocation("scaffold_module", new
+                {
+                    module_id = "sample_module",
+                    display_name = "Sample Module",
+                    tool_prefix = "sm",
+                    tools = new[]
+                    {
+                        new { name = "read_file", description = "Read a file." },
+                        new { name = "read__file", description = "Read another file." },
+                    },
+                }),
+                CancellationToken.None));
+        Assert.That(
+            Directory.GetFiles(_externalModulesDirectory, "*", SearchOption.AllDirectories),
+            Is.Empty);
     }
 
     [Test]
@@ -473,16 +550,19 @@ public sealed class ModuleDevBoundaryTests
 
     private static PackageManifest LoadManifest()
     {
-        var path = Path.Combine(
-            TestContext.CurrentContext.TestDirectory,
-            "contributions",
-            ModuleDevContracts.SourceId,
-            "package.json");
+        var path = ManifestPath();
         return JsonSerializer.Deserialize<PackageManifest>(
             File.ReadAllText(path),
             new JsonSerializerOptions(JsonSerializerDefaults.Web))
             ?? throw new InvalidOperationException("The module manifest could not be loaded.");
     }
+
+    private static string ManifestPath() =>
+        Path.Combine(
+            TestContext.CurrentContext.TestDirectory,
+            "contributions",
+            ModuleDevContracts.SourceId,
+            "package.json");
 
     private sealed record Fixture(
         TestHost Host,

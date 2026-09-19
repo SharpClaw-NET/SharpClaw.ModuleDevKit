@@ -113,8 +113,7 @@ internal sealed class ModuleDevOperations(
             {
                 tools.Add(new ModuleScaffoldService.ToolStub(
                     RequiredString(tool, "name"),
-                    OptionalString(tool, "description"),
-                    OptionalString(tool, "parameters_hint")));
+                    OptionalString(tool, "description")));
             }
         }
 
