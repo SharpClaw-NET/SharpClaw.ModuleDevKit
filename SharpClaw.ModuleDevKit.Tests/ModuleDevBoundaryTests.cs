@@ -1,6 +1,9 @@
+using System.Diagnostics;
+using System.IO.Compression;
 using System.Reflection;
 using System.Text;
 using System.Text.Json;
+using System.Xml.Linq;
 using NUnit.Framework;
 using SharpClaw.Contracts.Kernel;
 using SharpClaw.ModuleSDK;
@@ -434,6 +437,110 @@ public sealed class ModuleDevBoundaryTests
     }
 
     [Test]
+    public async Task Scaffold_EscapesLegalTextAndBuildsAndPacksFromPackageFeed()
+    {
+        var fixture = CreateFixture();
+        var displayName = "R&D \"Tools\" \\ Žirafa";
+        var description = "Build R&D \"tools\" from C:\\work.\r\nSecond line: 東京.";
+        var toolDescription = "Read \"quoted\" paths.\r\nNext\tvalue\u0001 \\ Ω.";
+        CreateGeneratedProjectNuGetConfig();
+
+        await fixture.Tool.InvokeAsync(
+            ToolInvocation("scaffold_module", new
+            {
+                module_id = "sample_module",
+                display_name = displayName,
+                tool_prefix = "sm",
+                description,
+                tools = new[] { new { name = "echo", description = toolDescription } },
+            }),
+            CancellationToken.None);
+
+        var directory = Path.Combine(_externalModulesDirectory, "sample_module");
+        var projectPath = Path.Combine(directory, "SampleModule.csproj");
+        var sourcePath = Path.Combine(directory, "SampleModuleModule.cs");
+        var manifestPath = Path.Combine(directory, "package.json");
+        var project = XDocument.Load(projectPath, LoadOptions.PreserveWhitespace);
+        using var manifest = JsonDocument.Parse(await File.ReadAllTextAsync(manifestPath));
+        var loadedManifest = PackageManifestLoader.Load(manifestPath);
+        var source = await File.ReadAllTextAsync(sourcePath);
+
+        var build = await fixture.Tool.InvokeAsync(
+            ToolInvocation("build_module", new
+            {
+                module_id = "sample_module",
+                configuration = "Release",
+            }),
+            CancellationToken.None);
+        var packageDirectory = Path.Combine(_externalModulesDirectory, "packages");
+        var pack = await RunDotNetAsync(
+            _externalModulesDirectory,
+            "pack",
+            projectPath,
+            "--configuration",
+            "Release",
+            "--no-build",
+            "--no-restore",
+            "--output",
+            packageDirectory,
+            "--nologo");
+        var packagePath = Directory.GetFiles(packageDirectory, "*.nupkg").Single();
+        using var package = ZipFile.OpenRead(packagePath);
+        var packageEntries = package.Entries.Select(entry => entry.FullName).ToArray();
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(
+                project.Descendants("Description").Single().Value,
+                Is.EqualTo(description.Replace("\r\n", "\n", StringComparison.Ordinal)));
+            Assert.That(
+                manifest.RootElement.GetProperty("displayName").GetString(),
+                Is.EqualTo(displayName));
+            Assert.That(
+                manifest.RootElement.GetProperty("description").GetString(),
+                Is.EqualTo(description));
+            Assert.That(loadedManifest.Manifest.DisplayName, Is.EqualTo(displayName));
+            Assert.That(source, Does.Contain("R&D \\\"Tools\\\" \\\\ Žirafa"));
+            Assert.That(source, Does.Contain("\\r\\n"));
+            Assert.That(source, Does.Contain("\\t"));
+            Assert.That(source, Does.Contain("\\u0001"));
+            Assert.That(source, Does.Contain("東京").Or.Contain("Ω"));
+            Assert.That(build.Content, Does.Contain("\"Success\": true"));
+            Assert.That(pack.ExitCode, Is.Zero, pack.Output);
+            Assert.That(
+                package.Entries.Any(entry => entry.FullName.EndsWith("SampleModule.dll", StringComparison.Ordinal)),
+                Is.True,
+                string.Join(Environment.NewLine, packageEntries));
+            Assert.That(
+                package.Entries.Any(entry => entry.FullName.EndsWith("package.json", StringComparison.Ordinal)),
+                Is.True,
+                string.Join(Environment.NewLine, packageEntries));
+        });
+    }
+
+    [Test]
+    public void Scaffold_CancelledPublishLeavesNoPartialWorkspace()
+    {
+        var workspace = new ModuleWorkspaceService();
+        workspace.BindExternalModulesDirectory(_externalModulesDirectory);
+        var scaffold = new ModuleScaffoldService(workspace);
+        using var cancellation = new CancellationTokenSource();
+        cancellation.Cancel();
+
+        Assert.ThrowsAsync<OperationCanceledException>(async () =>
+            await scaffold.ScaffoldAsync(
+                new ModuleScaffoldService.ScaffoldSpec(
+                    "sample_module",
+                    "Sample Module",
+                    "sm"),
+                new HostModuleListResult(_externalModulesDirectory, []),
+                cancellation.Token));
+        Assert.That(
+            Directory.EnumerateFileSystemEntries(_externalModulesDirectory),
+            Is.Empty);
+    }
+
+    [Test]
     public void Scaffold_RejectsToolNamesThatGenerateTheSameHandlerType()
     {
         var fixture = CreateFixture();
@@ -536,6 +643,114 @@ public sealed class ModuleDevBoundaryTests
             new ModuleDevEndpointHandler(gateway));
     }
 
+    private void CreateGeneratedProjectNuGetConfig()
+    {
+        var packageRoot = Environment.GetEnvironmentVariable("NUGET_PACKAGES");
+        if (string.IsNullOrWhiteSpace(packageRoot))
+        {
+            packageRoot = Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
+                ".nuget",
+                "packages");
+        }
+
+        var feed = Path.Combine(_externalModulesDirectory, ".feed");
+        Directory.CreateDirectory(feed);
+        CopyPackageArchive(
+            packageRoot,
+            "SharpClaw.ModuleSDK",
+            PackageVersion(typeof(ISharpClawModule).Assembly),
+            feed);
+        CopyPackageArchive(
+            packageRoot,
+            "SharpClaw.Contracts",
+            PackageVersion(typeof(PackageManifest).Assembly),
+            feed);
+
+        var configuration = new XDocument(
+            new XElement("configuration",
+                new XElement("packageSources",
+                    new XElement("clear"),
+                    new XElement("add",
+                        new XAttribute("key", "frozen"),
+                        new XAttribute("value", feed)),
+                    new XElement("add",
+                        new XAttribute("key", "nuget"),
+                        new XAttribute("value", "https://api.nuget.org/v3/index.json"))),
+                new XElement("packageSourceMapping",
+                    new XElement("packageSource",
+                        new XAttribute("key", "frozen"),
+                        new XElement("package", new XAttribute("pattern", "SharpClaw.*"))),
+                    new XElement("packageSource",
+                        new XAttribute("key", "nuget"),
+                        new XElement("package", new XAttribute("pattern", "*"))))));
+        configuration.Save(Path.Combine(_externalModulesDirectory, "NuGet.Config"));
+    }
+
+    private static void CopyPackageArchive(
+        string packageRoot,
+        string packageId,
+        string version,
+        string feed)
+    {
+        var normalizedId = packageId.ToLowerInvariant();
+        var normalizedVersion = version.ToLowerInvariant();
+        var archive = Path.Combine(
+            packageRoot,
+            normalizedId,
+            normalizedVersion,
+            $"{normalizedId}.{normalizedVersion}.nupkg");
+        if (!File.Exists(archive))
+            throw new FileNotFoundException($"Package archive not found: {packageId} {version}.", archive);
+        File.Copy(archive, Path.Combine(feed, Path.GetFileName(archive)));
+    }
+
+    private static string PackageVersion(Assembly assembly)
+    {
+        var informational = assembly
+            .GetCustomAttribute<AssemblyInformationalVersionAttribute>()?
+            .InformationalVersion;
+        if (string.IsNullOrWhiteSpace(informational))
+            throw new InvalidOperationException("The package version is unavailable.");
+        return informational.Split('+', 2)[0];
+    }
+
+    private static async Task<ProcessResult> RunDotNetAsync(
+        string workingDirectory,
+        params string[] arguments)
+    {
+        var startInfo = new ProcessStartInfo("dotnet")
+        {
+            WorkingDirectory = workingDirectory,
+            UseShellExecute = false,
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+            CreateNoWindow = true,
+        };
+        foreach (var argument in arguments)
+            startInfo.ArgumentList.Add(argument);
+
+        using var process = new Process { StartInfo = startInfo };
+        process.Start();
+        var stdout = process.StandardOutput.ReadToEndAsync();
+        var stderr = process.StandardError.ReadToEndAsync();
+        using var timeout = new CancellationTokenSource(TimeSpan.FromMinutes(2));
+        try
+        {
+            await process.WaitForExitAsync(timeout.Token);
+        }
+        catch
+        {
+            if (!process.HasExited)
+                process.Kill(entireProcessTree: true);
+            throw;
+        }
+
+        return new ProcessResult(
+            process.ExitCode,
+            await stdout + await stderr);
+    }
+
     private static ToolInvocation ToolInvocation(string toolName, object arguments)
     {
         var invocationId = Guid.NewGuid();
@@ -570,6 +785,8 @@ public sealed class ModuleDevBoundaryTests
         ModuleDevToolHandler Tool,
         ModuleDevCliHandler Cli,
         ModuleDevEndpointHandler Endpoint);
+
+    private sealed record ProcessResult(int ExitCode, string Output);
 
     private sealed class TestHost(string externalModulesDirectory)
         : IHostActionEntry, IModuleCrossSidecarActionEntry

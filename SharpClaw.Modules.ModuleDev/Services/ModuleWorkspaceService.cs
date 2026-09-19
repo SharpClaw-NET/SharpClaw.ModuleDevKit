@@ -108,6 +108,75 @@ internal sealed class ModuleWorkspaceService
     }
 
     /// <summary>
+    /// Publishes one complete module workspace after every file passes validation.
+    /// </summary>
+    public async Task WriteFilesAtomicallyAsync(
+        string SourceId,
+        IReadOnlyDictionary<string, string> files,
+        CancellationToken ct = default)
+    {
+        ArgumentNullException.ThrowIfNull(files);
+        if (files.Count == 0)
+            throw new ArgumentException("At least one file is required.", nameof(files));
+
+        var moduleDir = ResolveModuleDir(SourceId);
+        if (Directory.Exists(moduleDir))
+            throw new InvalidOperationException(
+                $"Module workspace '{SourceId}' already exists.");
+
+        var validated = files.Select(file => new
+        {
+            file.Key,
+            file.Value,
+            FinalPath = ValidateFileForWrite(SourceId, file.Key, file.Value),
+        }).ToArray();
+        ct.ThrowIfCancellationRequested();
+
+        var stagingDir = ModulePathGuard.EnsureContainedIn(
+            Path.Combine(
+                ExternalPackagesDirectory,
+                $".{SourceId}.{Guid.NewGuid():N}.scaffold"),
+            ExternalPackagesDirectory);
+
+        try
+        {
+            Directory.CreateDirectory(stagingDir);
+            foreach (var file in validated)
+            {
+                ct.ThrowIfCancellationRequested();
+                var relativePath = Path.GetRelativePath(moduleDir, file.FinalPath);
+                var stagingPath = ModulePathGuard.EnsureContainedIn(
+                    Path.GetFullPath(Path.Combine(stagingDir, relativePath)),
+                    stagingDir);
+                Directory.CreateDirectory(Path.GetDirectoryName(stagingPath)!);
+                await File.WriteAllBytesAsync(
+                    stagingPath,
+                    Encoding.UTF8.GetBytes(file.Value),
+                    ct);
+            }
+
+            ct.ThrowIfCancellationRequested();
+            Directory.Move(stagingDir, moduleDir);
+        }
+        catch (Exception exception)
+        {
+            try
+            {
+                if (Directory.Exists(stagingDir))
+                    Directory.Delete(stagingDir, recursive: true);
+            }
+            catch (Exception cleanupException)
+            {
+                throw new IOException(
+                    "The incomplete scaffold staging directory could not be removed.",
+                    new AggregateException(exception, cleanupException));
+            }
+
+            throw;
+        }
+    }
+
+    /// <summary>
     /// Validates a file path and content without changing the workspace.
     /// </summary>
     public string ValidateFileForWrite(string SourceId, string relativePath, string content)

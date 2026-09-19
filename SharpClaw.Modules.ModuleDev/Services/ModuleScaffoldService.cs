@@ -1,6 +1,9 @@
 using System.Reflection;
 using System.Text;
+using System.Text.Json;
+using System.Text.Json.Nodes;
 using System.Text.RegularExpressions;
+using System.Xml.Linq;
 
 using SharpClaw.ModuleSDK;
 using SharpClaw.ModuleSDK.HostOperations;
@@ -44,78 +47,54 @@ internal sealed partial class ModuleScaffoldService(ModuleWorkspaceService works
         ValidateSpec(spec, host);
 
         var moduleDir = workspace.ResolveModuleDir(spec.SourceId);
-        Directory.CreateDirectory(moduleDir);
-
         return await ScaffoldDotNetAsync(spec, moduleDir, ct);
     }
 
     private async Task<ScaffoldResult> ScaffoldDotNetAsync(
         ScaffoldSpec spec, string moduleDir, CancellationToken ct)
     {
-        var files = new List<string>();
         var assemblyName = ToPascalCase(spec.SourceId);
-
-        // 1. Generate .csproj
-        var csprojContent = LoadTemplate("ProjectFile.csproj.template")
-            .Replace("{{ASSEMBLY_NAME}}", assemblyName)
-            .Replace("{{DESCRIPTION}}", spec.Description ?? $"{spec.DisplayName} SharpClaw module.")
-            .Replace("{{MODULE_SDK_VERSION}}", PackageVersion(typeof(ISharpClawModule).Assembly));
-
         var csprojName = ToPascalCase(spec.SourceId) + ".csproj";
-        await workspace.WriteFileAsync(spec.SourceId, csprojName, csprojContent, ct);
-        files.Add(csprojName);
-
-        // 2. Generate module class
         var className = ToPascalCase(spec.SourceId) + "Module";
         var ns = ToPascalCase(spec.SourceId);
         var toolDescriptors = BuildToolDescriptors(spec.Tools);
         var toolRegistrations = BuildToolRegistrations(spec.Tools);
         var toolHandlers = BuildToolHandlers(spec.Tools);
-
         var moduleContent = LoadTemplate("ModuleClass.cs.template")
             .Replace("{{NAMESPACE}}", ns)
             .Replace("{{CLASS_NAME}}", className)
-            .Replace("{{MODULE_ID}}", spec.SourceId)
-            .Replace("{{DISPLAY_NAME}}", spec.DisplayName)
-            .Replace("{{TOOL_PREFIX}}", spec.ToolPrefix)
+            .Replace("{{MODULE_ID}}", EscapeCSharpString(spec.SourceId))
+            .Replace("{{DISPLAY_NAME}}", EscapeCSharpString(spec.DisplayName))
+            .Replace("{{TOOL_PREFIX}}", EscapeCSharpString(spec.ToolPrefix))
             .Replace("{{TOOL_DESCRIPTORS}}", toolDescriptors)
             .Replace("{{TOOL_REGISTRATIONS}}", toolRegistrations)
             .Replace("{{TOOL_HANDLERS}}", toolHandlers);
-
         var moduleFileName = className + ".cs";
-        await workspace.WriteFileAsync(spec.SourceId, moduleFileName, moduleContent, ct);
-        files.Add(moduleFileName);
-
-        // 3. Generate package.json
-        var manifestContent = LoadTemplate("Manifest.json.template")
-            .Replace("{{MODULE_ID}}", spec.SourceId)
-            .Replace("{{DISPLAY_NAME}}", spec.DisplayName)
-            .Replace("{{TOOL_PREFIX}}", spec.ToolPrefix)
-            .Replace("{{NAMESPACE}}", ns)
-            .Replace("{{CLASS_NAME}}", className)
-            .Replace("{{ASSEMBLY_NAME}}", assemblyName)
-            .Replace("{{DESCRIPTION}}", spec.Description ?? "");
-
-        await workspace.WriteFileAsync(spec.SourceId, "package.json", manifestContent, ct);
-        files.Add("package.json");
-
         var readmeContent = LoadTemplate("Readme.md.template")
             .Replace("{{DISPLAY_NAME}}", spec.DisplayName)
             .Replace("{{DESCRIPTION}}", spec.Description ?? $"{spec.DisplayName} SharpClaw package.")
             .Replace("{{TOOL_PREFIX}}", spec.ToolPrefix)
             .Replace("{{NAMESPACE}}", ns)
             .Replace("{{CLASS_NAME}}", className);
+        var files = new Dictionary<string, string>(StringComparer.Ordinal)
+        {
+            [csprojName] = BuildProjectFile(spec, assemblyName),
+            [moduleFileName] = moduleContent,
+            ["package.json"] = BuildManifest(spec, assemblyName, ns, className),
+            ["README.md"] = readmeContent,
+        };
 
-        await workspace.WriteFileAsync(spec.SourceId, "README.md", readmeContent, ct);
-        files.Add("README.md");
-
-        return new ScaffoldResult(moduleDir, files);
+        await workspace.WriteFilesAtomicallyAsync(spec.SourceId, files, ct);
+        return new ScaffoldResult(moduleDir, files.Keys.ToArray());
     }
 
     // ── Validation ────────────────────────────────────────────────
 
     private static void ValidateSpec(ScaffoldSpec spec, HostModuleListResult host)
     {
+        ArgumentNullException.ThrowIfNull(spec);
+        ArgumentNullException.ThrowIfNull(host);
+
         if (!ModuleIdRegex().IsMatch(spec.SourceId))
             throw new ArgumentException(
                 $"Invalid module ID '{spec.SourceId}'. Must match ^[a-z][a-z0-9_]{{0,39}}$.");
@@ -169,8 +148,8 @@ internal sealed partial class ModuleScaffoldService(ModuleWorkspaceService works
             var desc = tool.Description ?? $"TODO: describe {tool.Name}";
             var property = ToPascalCase(tool.Name);
             sb.AppendLine($"    public static ToolDescriptor {property} {{ get; }} = new(");
-            sb.AppendLine($"        \"{tool.Name}\",");
-            sb.AppendLine($"        \"{EscapeString(desc)}\",");
+            sb.AppendLine($"        \"{EscapeCSharpString(tool.Name)}\",");
+            sb.AppendLine($"        \"{EscapeCSharpString(desc)}\",");
             sb.AppendLine("        ToolSchemas.EmptyObject);");
         }
 
@@ -209,7 +188,7 @@ internal sealed partial class ModuleScaffoldService(ModuleWorkspaceService works
             sb.AppendLine("        CancellationToken cancellationToken)");
             sb.AppendLine("    {");
             sb.AppendLine("        cancellationToken.ThrowIfCancellationRequested();");
-            sb.AppendLine($"        return ValueTask.FromResult(ToolResult.Text(\"TODO: implement {EscapeString(tool.Name)}\"));");
+            sb.AppendLine($"        return ValueTask.FromResult(ToolResult.Text(\"TODO: implement {EscapeCSharpString(tool.Name)}\"));");
             sb.AppendLine("    }");
             sb.AppendLine("}");
             sb.AppendLine();
@@ -235,8 +214,83 @@ internal sealed partial class ModuleScaffoldService(ModuleWorkspaceService works
                 .Select(w => char.ToUpperInvariant(w[0]) + w[1..]));
     }
 
-    private static string EscapeString(string s) =>
-        s.Replace("\\", "\\\\").Replace("\"", "\\\"");
+    private static string BuildProjectFile(ScaffoldSpec spec, string assemblyName)
+    {
+        var content = LoadTemplate("ProjectFile.csproj.template")
+            .Replace("{{ASSEMBLY_NAME}}", assemblyName)
+            .Replace("{{DESCRIPTION}}", string.Empty)
+            .Replace("{{MODULE_SDK_VERSION}}", PackageVersion(typeof(ISharpClawModule).Assembly));
+        var document = XDocument.Parse(content, LoadOptions.PreserveWhitespace);
+        var description = document.Root?
+            .Elements("PropertyGroup")
+            .SelectMany(group => group.Elements("Description"))
+            .SingleOrDefault()
+            ?? throw new InvalidDataException("The project template has no Description element.");
+        description.Value = spec.Description ?? $"{spec.DisplayName} SharpClaw module.";
+        return document.ToString(SaveOptions.DisableFormatting);
+    }
+
+    private static string BuildManifest(
+        ScaffoldSpec spec,
+        string assemblyName,
+        string ns,
+        string className)
+    {
+        var manifest = new JsonObject
+        {
+            ["id"] = spec.SourceId,
+            ["displayName"] = spec.DisplayName,
+            ["version"] = "0.1.0-beta",
+            ["toolPrefix"] = spec.ToolPrefix,
+            ["runtime"] = DotNetRuntime,
+            ["hostMode"] = "sidecar",
+            ["entryAssembly"] = $"{assemblyName}.dll",
+            ["entryType"] = $"{ns}.{className}",
+            ["description"] = spec.Description ?? string.Empty,
+            ["platforms"] = null,
+            ["enabled"] = true,
+            ["executionTimeoutSeconds"] = 60,
+            ["exports"] = new JsonArray(),
+            ["requires"] = new JsonArray(),
+        };
+        return manifest.ToJsonString(new JsonSerializerOptions(JsonSerializerDefaults.Web)
+        {
+            WriteIndented = true,
+        });
+    }
+
+    private static string EscapeCSharpString(string value)
+    {
+        var escaped = new StringBuilder(value.Length);
+        foreach (var character in value)
+        {
+            switch (character)
+            {
+                case '\\': escaped.Append("\\\\"); break;
+                case '"': escaped.Append("\\\""); break;
+                case '\0': escaped.Append("\\0"); break;
+                case '\a': escaped.Append("\\a"); break;
+                case '\b': escaped.Append("\\b"); break;
+                case '\f': escaped.Append("\\f"); break;
+                case '\n': escaped.Append("\\n"); break;
+                case '\r': escaped.Append("\\r"); break;
+                case '\t': escaped.Append("\\t"); break;
+                case '\v': escaped.Append("\\v"); break;
+                case '\u2028':
+                case '\u2029':
+                    escaped.Append($"\\u{(int)character:X4}");
+                    break;
+                default:
+                    if (char.IsControl(character))
+                        escaped.Append($"\\u{(int)character:X4}");
+                    else
+                        escaped.Append(character);
+                    break;
+            }
+        }
+
+        return escaped.ToString();
+    }
 
     private static void ValidateToolName(string toolName)
     {

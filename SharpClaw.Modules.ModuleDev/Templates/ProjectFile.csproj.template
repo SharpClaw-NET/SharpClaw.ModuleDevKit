@@ -18,7 +18,7 @@
   </ItemGroup>
 
   <ItemGroup>
-    <Content Include="package.json" CopyToOutputDirectory="PreserveNewest" Pack="false" />
+    <None Update="package.json" CopyToOutputDirectory="PreserveNewest" />
     <None Include="README.md" Pack="true" PackagePath="\" />
   </ItemGroup>
 
