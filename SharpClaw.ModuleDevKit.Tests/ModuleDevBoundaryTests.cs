@@ -404,6 +404,7 @@ public sealed class ModuleDevBoundaryTests
             Assert.That(source, Does.Not.Contain("switch"));
             Assert.That(project, Does.Contain("SharpClaw.ModuleSDK"));
             Assert.That(project, Does.Contain($"[{moduleSdkVersion}]"));
+            Assert.That(project, Does.Contain("<ManagePackageVersionsCentrally>false</ManagePackageVersionsCentrally>"));
             Assert.That(project, Does.Contain("<IsSharpClawModulePackage>true</IsSharpClawModulePackage>"));
             Assert.That(project, Does.Contain("<PackageReadmeFile>README.md</PackageReadmeFile>"));
             Assert.That(project, Does.Not.Contain("SharpClaw.Contracts"));
@@ -458,11 +459,8 @@ public sealed class ModuleDevBoundaryTests
             projectPath,
             "--configuration",
             "Release",
-            "--no-build",
-            "--no-restore",
             "--output",
             packageDirectory,
-            "-p:ManagePackageVersionsCentrally=false",
             "--nologo");
         Assert.That(pack.ExitCode, Is.Zero, pack.Output);
         var packagePath = Directory.GetFiles(packageDirectory, "*.nupkg").Single();
@@ -495,6 +493,59 @@ public sealed class ModuleDevBoundaryTests
                 package.Entries.Any(entry => entry.FullName.EndsWith("package.json", StringComparison.Ordinal)),
                 Is.True,
                 string.Join(Environment.NewLine, packageEntries));
+        });
+    }
+
+    [Test]
+    public async Task BuildModule_PreservesCallerOwnedCentralPackageManagement()
+    {
+        var fixture = CreateFixture();
+        CreateGeneratedProjectNuGetConfig();
+        var moduleDirectory = Path.Combine(_externalModulesDirectory, "cpm_module");
+        Directory.CreateDirectory(moduleDirectory);
+        var moduleSdkVersion = PackageVersion(typeof(ISharpClawModule).Assembly);
+        await File.WriteAllTextAsync(
+            Path.Combine(moduleDirectory, "Directory.Packages.props"),
+            $$"""
+            <Project>
+              <PropertyGroup>
+                <ManagePackageVersionsCentrally>true</ManagePackageVersionsCentrally>
+              </PropertyGroup>
+              <ItemGroup>
+                <PackageVersion Include="SharpClaw.ModuleSDK" Version="[{{moduleSdkVersion}}]" />
+              </ItemGroup>
+            </Project>
+            """);
+        await File.WriteAllTextAsync(
+            Path.Combine(moduleDirectory, "CpmModule.csproj"),
+            """
+            <Project Sdk="Microsoft.NET.Sdk">
+              <PropertyGroup>
+                <TargetFramework>net10.0</TargetFramework>
+              </PropertyGroup>
+              <ItemGroup>
+                <PackageReference Include="SharpClaw.ModuleSDK" />
+              </ItemGroup>
+            </Project>
+            """);
+        await File.WriteAllTextAsync(
+            Path.Combine(moduleDirectory, "Module.cs"),
+            "namespace CpmModule; public sealed class Module;");
+
+        var build = await fixture.Tool.InvokeAsync(
+            ToolInvocation("build_module", new
+            {
+                module_id = "cpm_module",
+                configuration = "Release",
+            }),
+            CancellationToken.None);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(build.Content, Does.Contain("\"Success\": true"));
+            Assert.That(
+                File.Exists(Path.Combine(moduleDirectory, "bin", "Release", "net10.0", "CpmModule.dll")),
+                Is.True);
         });
     }
 
