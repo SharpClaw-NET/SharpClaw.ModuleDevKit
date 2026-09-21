@@ -14,10 +14,9 @@ internal sealed class SharpClawSdkReferenceService
                 workspace, or use mdk_apply_module_files when you know the file
                 contents and want to write several files in one operation.
                 The workflow writes the files, builds the .NET project, loads or
-                reloads the module, optionally invokes test tools, and writes a
-                system-role conversation steering message for the next turn.
-                Build failures stop before hot-load, so the next turn receives
-                structured compiler diagnostics.
+                reloads the module, and optionally invokes test tools. Build
+                failures stop before hot-load and return structured compiler
+                diagnostics directly to the caller.
 
                 Example module workflow:
 
@@ -35,11 +34,7 @@ internal sealed class SharpClawSdkReferenceService
                     }
                   ],
                   "build": true,
-                  "load": true,
-                  "conversation": {
-                    "channel_id": "00000000-0000-0000-0000-000000000000",
-                    "thread_id": "11111111-1111-1111-1111-111111111111"
-                  }
+                  "load": true
                 }
                 ```
                 """,
@@ -85,16 +80,6 @@ internal sealed class SharpClawSdkReferenceService
                 EF Core or LINQ execution into sidecars. Use query builders for
                 simple index filters and use claim when a job-like record must
                 be atomically selected and patched.
-                """,
-
-            ["conversation_steering"] = """
-                SharpClaw conversation steering SDK.
-
-                Context owns conversation steering. ModuleDev uses the typed
-                Context action contracts through IHostActionEntry. Use steering
-                after build failures, successful loads, test results, and other
-                results that must guide the next Context turn. The Context module
-                validates identity and stores the steering record.
                 """,
 
             ["manifest"] = """

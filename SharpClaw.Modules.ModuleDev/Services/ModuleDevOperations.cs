@@ -3,7 +3,6 @@ using System.Text.Json.Serialization;
 using SharpClaw.Contracts.Kernel;
 using SharpClaw.ModuleSDK;
 using SharpClaw.ModuleSDK.HostOperations;
-using SharpClaw.Modules.AgentOrchestration.Contracts;
 
 namespace SharpClaw.Modules.ModuleDev.Services;
 
@@ -78,10 +77,6 @@ internal sealed class ModuleDevOperations(
                     action.ConversationId,
                     hostActionEntry,
                     ct),
-            ModuleDevOperation.RecordConversationSteering =>
-                await RecordSteeringAsync(action.Parameters, hostActionEntry, ct),
-            ModuleDevOperation.ListConversationSteering =>
-                await ListSteeringAsync(action.Parameters, hostActionEntry, ct),
             ModuleDevOperation.DescribeModuleSystem =>
                 DescribeModuleSystem(),
             ModuleDevOperation.ListLoadedModules =>
@@ -264,35 +259,6 @@ internal sealed class ModuleDevOperations(
     private string GetSdkReference(JsonElement parameters) =>
         sdkReference.GetReference(OptionalString(parameters, "topic") ?? "agent_workflow");
 
-    private async Task<string> RecordSteeringAsync(
-        JsonElement parameters,
-        IHostActionEntry hostActionEntry,
-        CancellationToken ct)
-    {
-        var result = await InvokeCrossSidecarAsync(
-            hostActionEntry,
-            ContextSteeringActionDescriptors.Record,
-            CreateSteeringAction(parameters),
-            ct);
-        return Serialize(result);
-    }
-
-    private static async Task<string> ListSteeringAsync(
-        JsonElement parameters,
-        IHostActionEntry hostActionEntry,
-        CancellationToken ct)
-    {
-        var result = await InvokeCrossSidecarAsync(
-            hostActionEntry,
-            ContextSteeringActionDescriptors.List,
-            new ContextListSteeringAction(
-                RequiredGuid(parameters, "channel_id"),
-                OptionalGuid(parameters, "thread_id"),
-                OptionalInt(parameters, "limit") ?? 20),
-            ct);
-        return Serialize(result);
-    }
-
     private string DescribeModuleSystem() =>
         sdkReference.GetReference("all") + Environment.NewLine + """
 
@@ -344,10 +310,6 @@ internal sealed class ModuleDevOperations(
         var host = await GetHostModulesAsync(hostActionEntry, ct);
         BindWorkspace(host);
         var SourceId = RequiredString(parameters, "module_id");
-        var steeringParameters = parameters.TryGetProperty("conversation", out var conversation) &&
-            conversation.ValueKind == JsonValueKind.Object
-                ? conversation
-                : throw new ArgumentException("conversation must be an object.");
         var written = new List<object>();
 
         try
@@ -379,13 +341,6 @@ internal sealed class ModuleDevOperations(
                     ct);
                 if (!buildResult.Success)
                 {
-                    var steering = await RecordWorkflowSteeringAsync(
-                        hostActionEntry,
-                        steeringParameters,
-                        "module_build",
-                        $"Module '{SourceId}' build failed.",
-                        FormatBuildDiagnostics(buildResult),
-                        ct);
                     return Serialize(new
                     {
                         success = false,
@@ -393,7 +348,6 @@ internal sealed class ModuleDevOperations(
                         runtime = ModuleScaffoldService.DotNetRuntime,
                         files = written,
                         build = buildResult,
-                        steering,
                     });
                 }
             }
@@ -418,16 +372,6 @@ internal sealed class ModuleDevOperations(
                 hostActionEntry,
                 ct);
             var succeeded = tests.All(test => test.Success);
-            var summary = succeeded
-                ? $"Module '{SourceId}' workflow completed."
-                : $"Module '{SourceId}' workflow completed with failed Tool checks.";
-            var steeringResult = await RecordWorkflowSteeringAsync(
-                hostActionEntry,
-                steeringParameters,
-                "module_workflow",
-                summary,
-                Serialize(new { files = written, build = buildResult, load = lifecycle, tests }),
-                ct);
             return Serialize(new
             {
                 success = succeeded,
@@ -437,25 +381,16 @@ internal sealed class ModuleDevOperations(
                 build = buildResult,
                 load = lifecycle,
                 tests,
-                steering = steeringResult,
             });
         }
         catch (Exception exception) when (exception is not OperationCanceledException)
         {
-            var steering = await RecordWorkflowSteeringAsync(
-                hostActionEntry,
-                steeringParameters,
-                "module_workflow_error",
-                $"Module '{SourceId}' workflow failed before completion.",
-                Truncate(exception.ToString()),
-                ct);
             return Serialize(new
             {
                 success = false,
                 module_id = SourceId,
                 files = written,
                 error = exception.Message,
-                steering,
             });
         }
     }
@@ -525,36 +460,6 @@ internal sealed class ModuleDevOperations(
         return results;
     }
 
-    private static ContextRecordSteeringAction CreateSteeringAction(JsonElement parameters) =>
-        new(
-            RequiredGuid(parameters, "channel_id"),
-            OptionalGuid(parameters, "thread_id"),
-            OptionalString(parameters, "source") ?? "module_dev",
-            OptionalString(parameters, "category") ?? "manual",
-            RequiredString(parameters, "summary"),
-            OptionalString(parameters, "details") is { } details ? Truncate(details) : null,
-            OptionalString(parameters, "client_type") ?? "module-dev");
-
-    private static Task<ContextSteeringRecord> RecordWorkflowSteeringAsync(
-        IHostActionEntry hostActionEntry,
-        JsonElement conversation,
-        string category,
-        string summary,
-        string? details,
-        CancellationToken ct) =>
-        InvokeCrossSidecarAsync(
-            hostActionEntry,
-            ContextSteeringActionDescriptors.Record,
-            new ContextRecordSteeringAction(
-                RequiredGuid(conversation, "channel_id"),
-                OptionalGuid(conversation, "thread_id"),
-                OptionalString(conversation, "source") ?? "module_dev",
-                category,
-                summary,
-                details is null ? null : Truncate(details),
-                OptionalString(conversation, "client_type") ?? "module-dev"),
-            ct);
-
     private static async Task<HostModuleListResult> GetHostModulesAsync(
         IHostActionEntry hostActionEntry,
         CancellationToken ct) =>
@@ -608,41 +513,11 @@ internal sealed class ModuleDevOperations(
             ? value.GetBoolean()
             : null;
 
-    private static Guid RequiredGuid(JsonElement parameters, string name) =>
-        OptionalGuid(parameters, name)
-        ?? throw new ArgumentException($"{name} must contain one canonical non-empty GUID.");
-
-    private static Guid? OptionalGuid(JsonElement parameters, string name)
-    {
-        var raw = OptionalString(parameters, name);
-        if (raw is null)
-            return null;
-        return Guid.TryParseExact(raw, "D", out var value) && value != Guid.Empty
-            ? value
-            : throw new ArgumentException($"{name} must contain one canonical non-empty GUID.");
-    }
-
     private static string Serialize<T>(T value) =>
         JsonSerializer.Serialize(value, JsonOptions);
 
     private static JsonElement EmptyObject() =>
         JsonSerializer.SerializeToElement(new { });
-
-    private static string FormatBuildDiagnostics(ModuleBuildService.BuildResult result)
-    {
-        var diagnostics = result.Errors.Count > 0 ? result.Errors : result.Warnings;
-        return diagnostics.Count == 0
-            ? Truncate(result.RawOutput)
-            : string.Join(
-                Environment.NewLine,
-                diagnostics.Select(item =>
-                    $"{item.File}({item.Line},{item.Column}) {item.Code}: {item.Message}"));
-    }
-
-    private static string Truncate(string value) =>
-        value.Length <= 15_000
-            ? value
-            : value[..15_000] + Environment.NewLine + "... truncated ...";
 
     internal static void RejectRuntimeRequest(JsonElement parameters, string toolName)
     {

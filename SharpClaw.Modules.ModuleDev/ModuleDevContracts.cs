@@ -21,8 +21,6 @@ public enum ModuleDevOperation
     EnumerateDevEnvironment,
     GetSdkReference,
     ApplyModuleFiles,
-    RecordConversationSteering,
-    ListConversationSteering,
     DescribeModuleSystem,
     ListLoadedModules,
     ListWorkspaces,
@@ -80,8 +78,6 @@ public static class ModuleDevContracts
         Tool("enumerate_dev_environment", "Report the module development environment.", EmptySchema),
         Tool("get_sdk_reference", "Return the SharpClaw module SDK reference.", SdkReferenceSchema),
         Tool("apply_module_files", "Apply, build, load, and test one module update.", ApplyFilesSchema),
-        Tool("record_conversation_steering", "Record one Context steering entry.", RecordSteeringSchema),
-        Tool("list_conversation_steering", "List Context steering entries.", ListSteeringSchema),
         Tool("describe_module_system", "Describe the current module system.", EmptySchema),
         Tool("list_loaded_modules", "List modules in the active host graph.", EmptySchema),
     ];
@@ -93,7 +89,6 @@ public static class ModuleDevContracts
         ModuleDevOperation.DiscoverComInterfaces or
         ModuleDevOperation.EnumerateDevEnvironment or
         ModuleDevOperation.GetSdkReference or
-        ModuleDevOperation.ListConversationSteering or
         ModuleDevOperation.DescribeModuleSystem or
         ModuleDevOperation.ListLoadedModules or
         ModuleDevOperation.ListWorkspaces;
@@ -113,8 +108,6 @@ public static class ModuleDevContracts
         "enumerate_dev_environment" => ModuleDevOperation.EnumerateDevEnvironment,
         "get_sdk_reference" => ModuleDevOperation.GetSdkReference,
         "apply_module_files" => ModuleDevOperation.ApplyModuleFiles,
-        "record_conversation_steering" => ModuleDevOperation.RecordConversationSteering,
-        "list_conversation_steering" => ModuleDevOperation.ListConversationSteering,
         "describe_module_system" => ModuleDevOperation.DescribeModuleSystem,
         "list_loaded_modules" => ModuleDevOperation.ListLoadedModules,
         _ => throw new NotSupportedException($"Unknown ModuleDev Tool: {toolName}"),
@@ -288,39 +281,9 @@ public static class ModuleDevContracts
           "properties": {
             "topic": {
               "type": "string",
-              "enum": ["agent_workflow", "dotnet", "storage", "conversation_steering", "manifest", "all"]
+              "enum": ["agent_workflow", "dotnet", "storage", "manifest", "all"]
             }
           },
-          "additionalProperties": false
-        }
-        """);
-
-    private static JsonElement RecordSteeringSchema { get; } = Parse("""
-        {
-          "type": "object",
-          "properties": {
-            "channel_id": { "type": "string" },
-            "thread_id": { "type": "string" },
-            "summary": { "type": "string" },
-            "details": { "type": "string" },
-            "source": { "type": "string" },
-            "category": { "type": "string" },
-            "client_type": { "type": "string" }
-          },
-          "required": ["channel_id", "summary"],
-          "additionalProperties": false
-        }
-        """);
-
-    private static JsonElement ListSteeringSchema { get; } = Parse("""
-        {
-          "type": "object",
-          "properties": {
-            "channel_id": { "type": "string" },
-            "thread_id": { "type": "string" },
-            "limit": { "type": "integer" }
-          },
-          "required": ["channel_id"],
           "additionalProperties": false
         }
         """);
@@ -334,10 +297,9 @@ public static class ModuleDevContracts
             "build": { "type": "boolean" },
             "load": { "type": "boolean" },
             "files": { "type": "array", "items": { "type": "object" } },
-            "test_tools": { "type": "array", "items": { "type": "object" } },
-            "conversation": { "type": "object" }
+            "test_tools": { "type": "array", "items": { "type": "object" } }
           },
-          "required": ["module_id", "files", "conversation"],
+          "required": ["module_id", "files"],
           "additionalProperties": false
         }
         """);

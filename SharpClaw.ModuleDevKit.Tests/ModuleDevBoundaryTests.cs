@@ -9,7 +9,6 @@ using SharpClaw.Contracts.Kernel;
 using SharpClaw.ModuleSDK;
 using SharpClaw.ModuleSDK.HostOperations;
 using SharpClaw.ModuleSDK.Testing;
-using SharpClaw.Modules.AgentOrchestration.Contracts;
 using SharpClaw.Modules.ModuleDev;
 using SharpClaw.Modules.ModuleDev.Handlers;
 using SharpClaw.Modules.ModuleDev.Services;
@@ -60,7 +59,7 @@ public sealed class ModuleDevBoundaryTests
                 "module-dev.mutate",
             }));
             Assert.That(graph.ActionEntries, Has.Count.EqualTo(2));
-            Assert.That(graph.Tools, Has.Count.EqualTo(17));
+            Assert.That(graph.Tools, Has.Count.EqualTo(15));
             Assert.That(graph.Application.CliCommands, Has.Count.EqualTo(1));
             Assert.That(graph.Application.Endpoints, Has.Count.EqualTo(11));
             Assert.That(graph.Storage, Is.Empty);
@@ -69,6 +68,17 @@ public sealed class ModuleDevBoundaryTests
                 discovery.ToolHandlers.All(tool => tool.ParametersSchema.ValueKind == JsonValueKind.Object),
                 Is.True);
         });
+    }
+
+    [Test]
+    public void ModuleDevAssembly_DoesNotReferenceArchivedContracts()
+    {
+        var references = typeof(ModuleDevModule).Assembly
+            .GetReferencedAssemblies()
+            .Select(reference => reference.Name)
+            .ToArray();
+
+        Assert.That(references, Does.Not.Contain("SharpClaw.AgentOrchestration.Contracts"));
     }
 
     [Test]
@@ -147,8 +157,6 @@ public sealed class ModuleDevBoundaryTests
                 "enumerate_dev_environment",
                 "get_sdk_reference",
                 "apply_module_files",
-                "record_conversation_steering",
-                "list_conversation_steering",
                 "describe_module_system",
                 "list_loaded_modules",
             }));
@@ -277,35 +285,6 @@ public sealed class ModuleDevBoundaryTests
                 fixture.Host.CrossSidecarKeys,
                 Is.EqualTo(new[] { HostOperationActionDescriptors.ModuleList.Key.Value }));
         });
-    }
-
-    [Test]
-    public async Task SteeringOperations_UseContextTypedEntries()
-    {
-        var fixture = CreateFixture();
-        var channelId = Guid.NewGuid();
-        await fixture.Tool.InvokeAsync(
-            ToolInvocation("record_conversation_steering", new
-            {
-                channel_id = channelId.ToString("D"),
-                summary = "Build completed.",
-            }),
-            CancellationToken.None);
-        await fixture.Tool.InvokeAsync(
-            ToolInvocation("list_conversation_steering", new
-            {
-                channel_id = channelId.ToString("D"),
-                limit = 10,
-            }),
-            CancellationToken.None);
-
-        Assert.That(
-            fixture.Host.CrossSidecarKeys,
-            Is.EqualTo(new[]
-            {
-                ContextSteeringActionDescriptors.Record.Key.Value,
-                ContextSteeringActionDescriptors.List.Key.Value,
-            }));
     }
 
     [Test]
@@ -483,7 +462,9 @@ public sealed class ModuleDevBoundaryTests
             "--no-restore",
             "--output",
             packageDirectory,
+            "-p:ManagePackageVersionsCentrally=false",
             "--nologo");
+        Assert.That(pack.ExitCode, Is.Zero, pack.Output);
         var packagePath = Directory.GetFiles(packageDirectory, "*.nupkg").Single();
         using var package = ZipFile.OpenRead(packagePath);
         var packageEntries = package.Entries.Select(entry => entry.FullName).ToArray();
@@ -506,7 +487,6 @@ public sealed class ModuleDevBoundaryTests
             Assert.That(source, Does.Contain("\\u0001"));
             Assert.That(source, Does.Contain("東京").Or.Contain("Ω"));
             Assert.That(build.Content, Does.Contain("\"Success\": true"));
-            Assert.That(pack.ExitCode, Is.Zero, pack.Output);
             Assert.That(
                 package.Entries.Any(entry => entry.FullName.EndsWith("SampleModule.dll", StringComparison.Ordinal)),
                 Is.True,
@@ -565,10 +545,9 @@ public sealed class ModuleDevBoundaryTests
     }
 
     [Test]
-    public async Task Workflow_UsesWorkspaceLifecycleToolAndContextBoundaries()
+    public async Task Workflow_UsesWorkspaceLifecycleAndToolBoundaries()
     {
         var fixture = CreateFixture();
-        var channelId = Guid.NewGuid();
         var result = await fixture.Tool.InvokeAsync(
             ToolInvocation("apply_module_files", new
             {
@@ -583,7 +562,6 @@ public sealed class ModuleDevBoundaryTests
                 {
                     new { tool_name = "sample.echo", parameters = new { text = "hello" } },
                 },
-                conversation = new { channel_id = channelId.ToString("D") },
             }),
             CancellationToken.None);
 
@@ -597,7 +575,6 @@ public sealed class ModuleDevBoundaryTests
                     HostOperationActionDescriptors.ModuleList.Key.Value,
                     HostOperationActionDescriptors.ModuleLifecycle.Key.Value,
                     HostOperationActionDescriptors.ToolInvoke.Key.Value,
-                    ContextSteeringActionDescriptors.Record.Key.Value,
                 }));
             Assert.That(
                 File.Exists(Path.Combine(_externalModulesDirectory, "sample_module", "Sample.cs")),
@@ -853,8 +830,6 @@ public sealed class ModuleDevBoundaryTests
                         ["module-dev.contract"])]),
                 "host.module.lifecycle" => Lifecycle((HostModuleLifecycleAction)(object)request.Action!),
                 "host.tool.invoke" => ToolInvocationOutcome.Completed(ToolResult.Text("tool-result")),
-                "context.steering.record" => Steering((ContextRecordSteeringAction)(object)request.Action!),
-                "context.steering.list" => Array.Empty<ContextSteeringRecord>(),
                 _ => throw new NotSupportedException(request.Descriptor.Key.Value),
             };
             return ValueTask.FromResult<IActionOutcome<TResult>>(
@@ -940,18 +915,6 @@ public sealed class ModuleDevBoundaryTests
                 DateTimeOffset.UnixEpoch,
                 DateTimeOffset.UnixEpoch);
 
-        private static ContextSteeringRecord Steering(ContextRecordSteeringAction action) =>
-            new(
-                Guid.NewGuid(),
-                action.ChannelId,
-                action.ThreadId,
-                action.Source,
-                action.Category,
-                action.Summary,
-                action.Details,
-                action.ClientType,
-                Principal,
-                DateTimeOffset.UnixEpoch);
     }
 
     private sealed record TestOutcome<TResult>(

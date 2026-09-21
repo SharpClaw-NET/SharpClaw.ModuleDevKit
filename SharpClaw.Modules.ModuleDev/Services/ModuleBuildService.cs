@@ -65,6 +65,7 @@ internal sealed partial class ModuleBuildService(ModuleWorkspaceService workspac
         {
             FileName = "dotnet",
             ArgumentList = { "build", csprojPath, "-c", configuration, "-nologo",
+                "-p:ManagePackageVersionsCentrally=false",
                 "-consoleloggerparameters:NoSummary" },
             WorkingDirectory = workspace.ExternalPackagesDirectory,
             RedirectStandardOutput = true,

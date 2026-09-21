@@ -17,8 +17,8 @@ dotnet add package SharpClaw.Modules.ModuleDev --version 0.5.0-beta.4
 
 After the host loads the module, agents can call tools such as scaffold, file
 read and write, build, load and reload, process inspection, SDK reference
-lookup, and conversation steering workflows through the `mdk` prefix. The
-module creates and manages .NET module workspaces only. It keeps file writes
+lookup, and tool verification workflows through the `mdk` prefix. The module
+creates and manages .NET module workspaces only. It keeps file writes
 scoped to SharpClaw's external module workspace and validates module IDs,
 relative paths, file names, and build project extensions before touching disk
 or starting `dotnet build`.
